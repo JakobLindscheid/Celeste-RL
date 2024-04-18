@@ -3,6 +3,7 @@
 
 import numpy as np
 
+from pathlib import Path
 from utils.screen_info import ScreenInfo
 import torch
 
@@ -39,7 +40,11 @@ class Config:
         # True if you want a video for the best test
         self.video_best_screen = True
         self.fps = 90
-        self.region = (1,266,959,804)
+
+        # NOTE: For testing you need to change this to the region on your screen where the game is
+        # TODO: this needs to be a fixed value (especially the size)
+        # self.region = (1,266,959,804)
+        self.region = (1,1,3840,2160)
 
         # -------------------------------------------
 
@@ -169,15 +174,18 @@ class Config:
         self.sleep = 0.017
 
         # Path of TAS file
-        self.path_tas_file = "C:\\Code python\\Celeste\\file.tas"
+        # self.path_tas_file = "G:/Meine Ablage/Master/Semester 2/Modern Game AI/A3/Celeste-RL/file.tas"
+        self.path_tas_file = f"{Path(__file__).parents[1].as_posix()}/file.tas"
 
         # Reduction factor of image screen
-        self.reduction_factor = 8
+        # NOTE: adapt this together with the screen region and the size_image parameter
+        self.reduction_factor = 32
 
         # True to indicate that size image could be wrong
         self.allow_change_size_image = True
         # Size of the screenshoted image after pooling
-        self.size_image = np.array([3, 68, 120])
+        # NOTE: adapt this together with the screen region and the reduction factor parameter
+        self.size_image = np.array([3, 67, 120])
 
         # -------------------------------------------
 

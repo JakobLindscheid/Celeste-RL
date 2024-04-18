@@ -5,7 +5,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 import numpy as np
-import tensorflow as tf
+import torch
 import dxcam
 import cv2
 
@@ -413,8 +413,9 @@ class CelesteEnv():
         # Definition of pooling size to reduce the size of the image
         pooling_size = self.config.reduction_factor
 
-        frame = tf.nn.max_pool(frame, ksize=pooling_size, strides=pooling_size, padding='SAME')
-        frame = tf.transpose(frame, perm=[0, 3, 1 ,2]).numpy()
+        frame = torch.transpose(torch.tensor(frame), 3, 1)
+        frame = torch.nn.functional.max_pool2d(frame, kernel_size=pooling_size, stride=pooling_size, padding=(1,3))
+        frame = torch.transpose(torch.tensor(frame), 2, 3).numpy()
 
         # Normalize the screen
         if normalize:
@@ -524,7 +525,7 @@ class CelesteEnv():
             if "Coyote" in line:
                 observation[8] = int(line.split("Coyote")[1][1]) / 5 # 5 is max value of coyotte
 
-            if "Jump" in line: # If more than 10
+            if "Jump" in line and not "AutoJump" in line and not "IntroJump" in line: # If more than 10
                 if line.split("Jump")[1][2].isnumeric():
                     value = int(line.split("Jump")[1][1:3])
                 else:
