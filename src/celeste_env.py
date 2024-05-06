@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import dxcam
 import cv2
+from ahk import AHK
 
 from config import Config
 
@@ -66,8 +67,6 @@ class CelesteEnv():
         # True if the wrong screen is pasted
         self.wrong_screen_passed = False
 
-
-
         # True if maddeline is dashing in the current step
         self.is_dashing = False
 
@@ -75,6 +74,25 @@ class CelesteEnv():
 
         # Object initiate for screen shot
         if config.use_image or config.video_best_screen:
+
+            ahk = AHK()
+
+            win = ahk.win_get(title='Celeste')
+
+            if win:
+                win.activate()
+                win.to_top()
+                try:
+                    win.set_style("-0xC40000")
+                except:
+                    win.set_style("+0xC40000")
+                    win.set_style("-0xC40000")
+                win.set_always_on_top('Off') # Adapt as needed
+                win.move(x=0, y=0, width=config.region[2], height=config.region[3])
+                win.redraw()
+            else:
+                raise Exception("Celeste window not found")
+
             self.camera = dxcam.create(output_idx=0, output_color="BGR")
 
         # Object initiate for create video during test
@@ -158,7 +176,7 @@ class CelesteEnv():
         requests.get("http://localhost:32270/tas/playtas?filePath={}".format(self.config.path_tas_file), timeout=5)
 
         # Fast Forward to the end of the action to save execution time
-        requests.get("http://localhost:32270/tas/sendhotkey?id=FastForwardComment", timeout=5)
+        # requests.get("http://localhost:32270/tas/sendhotkey?id=FastForwardComment", timeout=5)
 
 
         # Get observation and done info
@@ -414,8 +432,8 @@ class CelesteEnv():
         pooling_size = self.config.reduction_factor
 
         frame = torch.transpose(torch.tensor(frame), 3, 1)
-        frame = torch.nn.functional.max_pool2d(frame, kernel_size=pooling_size, stride=pooling_size, padding=(1,3))
-        frame = torch.transpose(torch.tensor(frame), 2, 3).numpy()
+        frame = torch.nn.functional.max_pool2d(frame, kernel_size=pooling_size, stride=pooling_size)
+        frame = torch.transpose(frame, 2, 3).numpy()
 
         # Normalize the screen
         if normalize:
