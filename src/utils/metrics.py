@@ -51,7 +51,7 @@ class Metrics:
         # Number terminated for train part
         self.nb_terminated_train = 0
 
-    def insert_metrics(self, learning_step: int, reward: list(), episode: int, max_steps_ep: int, last_step):
+    def insert_metrics(self, learning_step: int, reward: list, episode: int, max_steps_ep: int, last_step):
         """Insert metrics given
 
         Args:

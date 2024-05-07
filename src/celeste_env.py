@@ -99,6 +99,8 @@ class CelesteEnv():
         if config.video_best_screen:
             self.screens = dict()
 
+        self.path_tas_file = config.path_tas_file
+
     def set_action_mode(self, action_mode):
         self.action_mode = action_mode
 
@@ -165,8 +167,8 @@ class CelesteEnv():
         while not changes_make:
             try:
                 # Rewrite the tas file with the frame
-                with open("file.tas", "w+", encoding="utf-8") as file:
-                    file.write(frame_to_add_l1 + "\n" + frame_to_add_l2 + "\n\n# end\n   1")
+                with open(self.path_tas_file, "w+", encoding="utf-8") as file:
+                    file.write(frame_to_add_l1 + "\n" + frame_to_add_l2 + "\n***\n# end\n   1")
                 changes_make = True
             except PermissionError:
                 # If error, wait 1 second
@@ -275,7 +277,7 @@ class CelesteEnv():
         time.sleep(self.config.sleep*3)
 
         # Write the tas file
-        with open(file="file.tas", mode="w", encoding="utf-8") as file:
+        with open(file=self.path_tas_file, mode="w", encoding="utf-8") as file:
             file.write(self.current_tas_file)
 
         # Run it
