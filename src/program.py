@@ -7,8 +7,9 @@ import numpy as np
 
 from celeste_env import CelesteEnv
 from config import Config
+import cv2
 
-import rl_sac_v2 as lib
+import rl_sac as lib
 
 from utils.metrics import Metrics
 
@@ -47,17 +48,24 @@ def main():
         metrics.nb_terminated_train = 0
 
         if learning_step > 1 or not config.start_with_test:
-            for episode_train in range(1, config.nb_train_episode + 1):
+            episode_train = 1
+            while episode_train < config.nb_train_episode + 1:
 
                 # Reset the environnement
-                state, image, terminated, truncated = env.reset()
+                info = {"fail_death": True}
+                while info["fail_death"]:
+                    state, image, terminated, truncated,info = env.reset()
 
                 ep_reward = list()
 
                 # For each step
+                image_steps = 0
                 while not terminated and not truncated:
-
+                    if image_steps %10==0:
+                        screen = env.get_image_game(normalize=False)[0]
+                        cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
                     # Get the actions
+                    # print(state[0][:11])
                     actions = algo.choose_action(state, image)
                     #print(actions)
                     # Step the environnement
@@ -81,11 +89,10 @@ def main():
 
                 if ep_reward:
                     metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
-                else: 
-                    episode_train -= 1
+                    episode_train += 1
 
-
-        for episode_test in range(1, config.nb_test_episode + 1):
+        episode_test = 1
+        while episode_test < config.nb_test_episode + 1:
 
             fail_death = False
 
@@ -93,7 +100,9 @@ def main():
             reward_ep = list()
 
             # Reset the environnement
-            state, image, terminated, truncated = env.reset(test=True)
+            info = {"fail_death": True}
+            while info["fail_death"]:
+                state, image, terminated, truncated,info = env.reset(test=True)
 
             # For each step
             while not terminated and not truncated:
@@ -135,13 +144,14 @@ def main():
                     config.prob_screen_used[0] = config.max_screen_value_test
                     config.prob_screen_used[config.max_screen_value_test] = config.max_screen_value_test+1
                     config.prob_screen_used = config.prob_screen_used / np.sum(config.prob_screen_used)
-
-            else:
-                episode_test -= 1
+                episode_test += 1
+            # else:
+            #     episode_test -= 1
 
         # Save the model (will be True only if new max reward)
         if save_model:
             algo.save_model()
+        algo.save_model(True)
 
         if restore:
             algo.load_model()

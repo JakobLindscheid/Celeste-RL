@@ -63,8 +63,15 @@ class ActorNetwork(nn.Module):
         sigma = torch.clamp(self.sigma(x), min=self.noise_value, max=1)
         return mu, sigma
 
-    def save_model(self):
-        torch.save(self.state_dict(), self.save_file)
+    def save_model(self,recent=False):
+        if recent:
+            torch.save(self.state_dict(), self.save_file[:-3]+"_recent.pt")
+        else:
+            torch.save(self.state_dict(), self.save_file)
 
-    def load_model(self):
-        self.load_state_dict(torch.load(self.save_file))
+    def load_model(self,recent=False):
+        if recent:
+            self.load_state_dict(torch.load(self.save_file[:-3]+"_recent.pt"))
+        else:
+            self.load_state_dict(torch.load(self.save_file))
+

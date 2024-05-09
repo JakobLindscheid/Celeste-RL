@@ -216,8 +216,8 @@ class Config:
             self.base_observation_size = self.base_observation_size + len(self.action_size)
 
         # Quantity of former iteration state and action (if action given) put if the observation vector
-        self.histo_obs = 10
-        self.histo_image = 2
+        self.histo_obs = 2
+        self.histo_image = 0
 
         # Calculate the real size of observation
         self.observation_size = (self.histo_obs + 1) * self.base_observation_size
@@ -247,7 +247,7 @@ class Config:
         self.reward_wrong_screen_passed = 0
 
         # Reward when nothing append
-        self.natural_reward = -1
+        self.natural_reward = -2
 
         # True will set done if screen is based, False only when last screen is passed
         self.one_screen = False

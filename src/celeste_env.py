@@ -81,7 +81,7 @@ class CelesteEnv():
 
             if win:
                 win.activate()
-                win.to_top()
+                # win.to_top()
                 try:
                     win.set_style("-0xC40000")
                 except:
@@ -183,7 +183,9 @@ class CelesteEnv():
 
         # Get observation and done info
         observation, terminated, fail_see_death= self.get_madeline_info()
-
+        # if not (observation is None) and np.isnan(observation).any():
+        #     print(observation)
+        #     print("---------step")
         # Roll the observation array (because we want to save an historic of the former actions and observations)
         self.observation[self.index_start_obs:] = np.roll(self.observation[self.index_start_obs:], self.config.base_observation_size, axis=0)
 
@@ -325,14 +327,17 @@ class CelesteEnv():
         self.game_step = 0
 
         # Get the observation of Madeline, no use for Done because it can not be True at reset
-        observation, _, _ = self.get_madeline_info(reset=True)
+        observation, _, fail_see_death = self.get_madeline_info(reset=True)
+        # print(observation)
+        # if not (observation is None) and np.isnan(observation).any():
+        #     print(observation)
+        #     print("---------reset")
 
         # If the goal coords are given, put it in the observation vector
         if self.config.give_goal_coords:
             # Get the two coords for X and Y (coords create a square goal)
             reward_goal_x = np.array(self.screen_info.goal[0])
             reward_goal_y = np.array(self.screen_info.goal[1])
-
             # Make sure to normalize the values
             self.observation[0:2] = self.screen_info.normalize_x(reward_goal_x)
             self.observation[2:4] = self.screen_info.normalize_y(reward_goal_y)
@@ -364,7 +369,13 @@ class CelesteEnv():
 
             screen_obs = np.array(self.screen_obs[np.newaxis, ...])
 
-        return obs_vect, screen_obs, False, False
+        # if np.isnan(obs_vect).any():
+        #     print(obs_vect)
+        #     print("---------resetend")
+
+        info = {"fail_death": fail_see_death}
+
+        return obs_vect, screen_obs, False, False,info
 
     def change_next_screen(self):
         """Change the screen Maddeline is in.
@@ -584,7 +595,7 @@ class CelesteEnv():
                     done = True
 
 
-        return observation, done, None
+        return observation, done, False
 
     def get_reward(self):
         """Get the reward
