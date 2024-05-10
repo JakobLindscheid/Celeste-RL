@@ -1,6 +1,7 @@
 """Celeste environnement
 """
 
+import re
 import time
 import requests
 from bs4 import BeautifulSoup
@@ -107,43 +108,56 @@ class CelesteEnv(gym.Env):
         self.init_tas_file = config.init_tas_file
         
         self.controls_before_start()
-
-    def wait_for_frame(self, frame_searched):
+    
+    def wait_for_game(self, search_frame):
         n_tries = 0
-        while self.game_step != frame_searched: # and n_tries < 11:
+        frozen = False
+        correct_frame = False
+        while (not frozen or not correct_frame) and n_tries < 10:
+
+            # wait a bit
+            time.sleep(self.config.sleep*2)
 
             n_tries += 1
-            
-            # wait for the next frame
-            time.sleep(self.config.sleep*3)
 
-            # Init the l_text
-            l_text = [""]
+            # Get the information of the game
+            response = requests.get("http://localhost:32270/tas/info", timeout=5)
 
-            # If Timer is in the text, that mean Celeste have rightfully start
-            # Sometimes it has start but the delay between FastForward and getting info is too short
-            while "Timer" not in "".join(l_text):
+            response_text = BeautifulSoup(response.content, "html.parser").text
 
-                # Get the information of the game
-                response = requests.get("http://localhost:32270/tas/info", timeout=5)
+            # Check if the game is frozen
+            frozen = "FrameStep" in response_text
 
-                # Get the corresponding text
-                l_text = BeautifulSoup(response.content, "html.parser").text.split("\n")
+            # get the current frame
+            if "Timer" in response_text:
+                # frame of the game
+                self.game_step = int(re.search(r"Timer\:\s[\d\:\.\s]+\((\d+)\)", response_text).group(1))
+                # frame of the tas file
+                current_frame = int(re.search(r"CurrentFrame\:\s(\d)", response_text).group(1))
+                
+                # check if the game is in the correct frame
+                correct_frame = self.game_step == search_frame
+                
+                # if the game is frozen but not in the correct frame, we need to step the game
+                if not correct_frame and frozen:
+                    # 2 causes:
+                    # - reset --> step to # end comment
+                    # - dashing freezes the game 3 frames too early --> use # sync dash comment 3 frames later
+                    if search_frame == 1 or current_frame < self.config.nb_frame_action + 3:
+                        requests.get("http://localhost:32270/tas/sendhotkey?id=FastForwardComment", timeout=5)
 
-            # Normally Timer appear on -8 index, but sometimes there is a "Cursor" info that can crash the code
-            # If "Timer" is not on -8 index, we just check all the index
-            if len(l_text) > 8 and "Timer" in l_text[-8]:
-                # Get game step
-                self.game_step = int(l_text[-8].replace(")","").split("(")[1])
-            else:
-                for line in l_text:
-                    if "Timer" in line:
-                        # Get game step
-                        self.game_step = int(line.replace(")","").split("(")[1])
-
-            print(f"Frame: {self.game_step} / {frame_searched}")
-        print()
-        return n_tries < 11
+                    else:
+                        # if we could not fix it by forwarding, do single frame steps
+                        # this should be avoided as it is slow
+                        print(f"Advancing frames {self.game_step} / {search_frame}.")
+                        requests.get("http://localhost:32270/tas/sendhotkey?id=FrameAdvance", timeout=5)
+        
+        if self.game_step != search_frame or not frozen:
+            # after 10 loops we give up and reset
+            print(f"Game is desynchronized. Expected: {search_frame}, got: {self.game_step}. Resetting...")
+            # raise Exception(f"Game is desynchronized. Expected: {search_frame}, got: {self.game_step}")
+            return False
+        return True
 
     def step(self, actions):
         """Step method
@@ -206,7 +220,7 @@ class CelesteEnv(gym.Env):
             try:
                 # Rewrite the tas file with the frame
                 with open(self.path_tas_file, "w+", encoding="utf-8") as file:
-                    file.write(frame_to_add_l1 + "\n" + frame_to_add_l2 + "\n***\n# end\n   1")
+                    file.write(frame_to_add_l1 + "\n" + frame_to_add_l2 + "\n***\n# dash sync\n   3\n# end\n   10")
                 changes_made = True
             except PermissionError:
                 # If error, wait 1 second
@@ -214,9 +228,8 @@ class CelesteEnv(gym.Env):
 
         # Run the tas file
         requests.get("http://localhost:32270/tas/playtas?filePath={}".format(self.config.path_tas_file), timeout=5)
-
-        success = self.wait_for_frame(self.game_step + self.config.nb_frame_action)
-        fail_see_death = not success
+        
+        synced = self.wait_for_game(search_frame=self.game_step + self.config.nb_frame_action)
 
         # Get observation and done info
         observation, terminated = self.get_madeline_info()
@@ -227,20 +240,19 @@ class CelesteEnv(gym.Env):
         if self.config.use_image:
             screen_obs = self.get_image_game()
 
+        # record video
         if self.is_testing and self.config.video_best_screen:
             self.screen_image()
 
+        # truncate if max_steps reached or not synced
         truncated = False
-        if self.current_step == self.max_steps and not terminated:
+        if (self.current_step == self.max_steps or not synced) and not terminated:
             truncated = True
 
         # Get the reward
         reward = self.get_reward()
 
-        # No info passed but initiate for convention
-        info = {"fail_death": fail_see_death}
-
-        return {"frame":screen_obs, "info":self.observation}, reward, terminated, truncated, info
+        return {"frame":screen_obs, "info":self.observation}, reward, terminated, truncated, {}
 
     def reset(self, test=False, seed=None):
         """Reset the environnement
@@ -293,14 +305,19 @@ class CelesteEnv(gym.Env):
         with open(file=self.path_tas_file, mode="w", encoding="utf-8") as file:
             file.write(tas_file)
 
-        # Run it
-        requests.get("http://localhost:32270/tas/playtas?filePath={}".format(self.config.path_tas_file), timeout=0.5)
+        # Try to sync the game after reset
+        synced = False
+        n_tries = 0
+        while not synced and n_tries < 10:
+            # Run tas file
+            requests.get("http://localhost:32270/tas/playtas?filePath={}".format(self.config.path_tas_file), timeout=0.5)
 
-        requests.get("http://localhost:32270/tas/sendhotkey?id=FastForwardComment", timeout=0.5)
-
-        success = self.wait_for_frame(1)
-        fail_see_death = not success
-
+            synced = self.wait_for_game(search_frame=1)
+            n_tries += 1
+        
+        if not synced:
+            raise Exception("Could not sync game.")
+        
         self.observation = np.zeros(self.observation_space["info"].shape)
         
         # Get the observation of Madeline, no use for Done because it can not be True at reset
@@ -326,7 +343,7 @@ class CelesteEnv(gym.Env):
             # Get the array of the screen
             screen_obs = self.get_image_game()
 
-        return {"frame":screen_obs, "info":self.observation}, {"fail_death": fail_see_death}
+        return {"frame":screen_obs, "info":self.observation}, {}
 
     def change_next_screen(self):
         """Change the screen Maddeline is in.
@@ -475,7 +492,7 @@ class CelesteEnv(gym.Env):
                 self.dead = True
 
             if "Timer" in line:
-                # If screen pasted. Only on screen 1 for now, will be change later
+                # If screen passed. Only on screen 1 for now, will be change later
                 if f"[{self.screen_info.next_screen_id}]" in line:
                     self.screen_passed = True
                     if self.config.one_screen:

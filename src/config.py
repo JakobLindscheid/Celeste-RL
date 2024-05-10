@@ -61,7 +61,7 @@ class Config:
         self.max_screen_value = 7
         self.max_screen_value_test = 0
         # Tas file to run for init the first screen
-        self.init_tas_file = "console load 1 {}\n   38\n\n# end\n   1"
+        self.init_tas_file = "console load 1 {}\n   38\n***\n# end\n   1"
 
         # Basic waiting time (equal to 1 frame)
         self.sleep = 0.016
