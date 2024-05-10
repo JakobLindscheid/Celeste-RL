@@ -83,7 +83,7 @@ hardcoded_screens = [
     ),
     ScreenInfo(
         screen_id="6c",
-        screen_value=9,
+        screen_value=8,
         start_position = [[2336, -1304], [1140, -762], [1140, -880], [1230, -872], [1230, -872], [1320, -900]],
         first_frame=58,
         x_max=2612, x_min=2330,

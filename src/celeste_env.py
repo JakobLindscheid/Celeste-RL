@@ -133,16 +133,19 @@ class CelesteEnv(gym.Env):
                 # frame of the game
                 self.game_step = int(re.search(r"Timer\:\s[\d\:\.\s]+\((\d+)\)", response_text).group(1))
                 # frame of the tas file
-                current_frame = int(re.search(r"CurrentFrame\:\s(\d)", response_text).group(1))
+                if "CurrentFrame" in response_text:
+                    current_frame = int(re.search(r"CurrentFrame\:\s(\d+)", response_text).group(1))
+                else:
+                    current_frame = None
                 
                 # check if the game is in the correct frame
                 correct_frame = self.game_step == search_frame
                 
                 # if the game is frozen but not in the correct frame, we need to step the game
-                if not correct_frame and frozen:
+                if not correct_frame and frozen and current_frame is not None:
                     # 2 causes:
                     # - reset --> step to # end comment
-                    # - dashing freezes the game 3 frames too early --> use # sync dash comment 3 frames later
+                    # - dashing freezes the game 3 frames too early --> jump to # end comment 3 frames later
                     if search_frame == 1 or current_frame < self.config.nb_frame_action + 3:
                         requests.get("http://localhost:32270/tas/sendhotkey?id=FastForwardComment", timeout=5)
 
@@ -220,7 +223,7 @@ class CelesteEnv(gym.Env):
             try:
                 # Rewrite the tas file with the frame
                 with open(self.path_tas_file, "w+", encoding="utf-8") as file:
-                    file.write(frame_to_add_l1 + "\n" + frame_to_add_l2 + "\n***\n# dash sync\n   3\n# end\n   10")
+                    file.write(frame_to_add_l1 + "\n" + frame_to_add_l2 + "\n***\n   3\n# end\n   10")
                 changes_made = True
             except PermissionError:
                 # If error, wait 1 second
