@@ -34,14 +34,8 @@ def main():
     # Create the metrics instance
     metrics = Metrics(config)
 
-
-
-    env.set_action_mode(algo.action_mode)
-
     # For every episode
     for learning_step in range(1, config.nb_learning_step + 1):
-
-        env.controls_before_start()
 
         # Reset nb terminated
         metrics.nb_terminated_train = 0
@@ -50,20 +44,26 @@ def main():
             for episode_train in range(1, config.nb_train_episode + 1):
 
                 # Reset the environnement
-                state, image, terminated, truncated = env.reset()
+                obs, _ = env.reset()
+                state = obs["info"]
+                image = obs["frame"]
 
                 ep_reward = list()
 
+                terminated = False
+                truncated = False
+                
                 # For each step
                 while not terminated and not truncated:
 
                     # Get the actions
                     actions = algo.choose_action(state, image)
-                    #print(actions)
                     # Step the environnement
-                    next_state, next_image, reward, terminated, truncated, info = env.step(actions)
+                    obs, reward, terminated, truncated, _ = env.step(actions)
+                    next_state = obs["info"]
+                    next_image = obs["frame"]
 
-                    if not info["fail_death"]:
+                    if not truncated:
                         # Insert the data in the algorithm memory
                         algo.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
 
@@ -76,8 +76,6 @@ def main():
                         entropy=algo.train()
 
                         ep_reward.append(reward)
-                    else:
-                        truncated=True
 
                 if ep_reward:
                     metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
@@ -87,13 +85,13 @@ def main():
 
         for episode_test in range(1, config.nb_test_episode + 1):
 
-            fail_death = False
-
             # Init the episode reward at 0
             reward_ep = list()
 
             # Reset the environnement
-            state, image, terminated, truncated = env.reset(test=True)
+            obs, _ = env.reset(test=True)
+            state = obs["info"]
+            image = obs["frame"]
 
             # For each step
             while not terminated and not truncated:
@@ -102,11 +100,9 @@ def main():
                 actions = algo.choose_action(state, image)
 
                 # Step the environnement
-                next_state, next_image, reward, terminated, truncated, info = env.step(actions)
-
-                if info["fail_death"]:
-                    fail_death = True
-                    truncated = True
+                obs, reward, terminated, truncated, _ = env.step(actions)
+                next_state = obs["info"]
+                next_image = obs["frame"]
 
                 # Actualise state
                 state = next_state
@@ -115,7 +111,7 @@ def main():
                 # Add the reward to the episode reward
                 reward_ep.append(reward)
 
-            if not fail_death:
+            if not truncated:
                 # Insert the metrics
                 save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
 
