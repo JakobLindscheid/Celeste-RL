@@ -6,7 +6,6 @@ import time
 import requests
 from bs4 import BeautifulSoup
 import numpy as np
-import torch
 import dxcam
 import cv2
 from ahk import AHK
@@ -123,7 +122,7 @@ class CelesteEnv(gym.Env):
             # Get the information of the game
             response = requests.get("http://localhost:32270/tas/info", timeout=5)
 
-            response_text = BeautifulSoup(response.content, "html.parser").text
+            response_text = BeautifulSoup(response.content, "html.parser").text.replace("\r","").replace("\n", " ")
 
             # Check if the game is frozen
             frozen = "FrameStep" in response_text
@@ -426,92 +425,70 @@ class CelesteEnv(gym.Env):
         # Get the observation information, not gonna detail those part because it is just the string interpretation
         # Run "http://localhost:32270/tas/info" on a navigator to understand the information gotten
         response = requests.get("http://localhost:32270/tas/info", timeout=5)
-        l_text = BeautifulSoup(response.content, "html.parser").text.split("\n")
-
+        response_text = BeautifulSoup(response.content, "html.parser").text.replace("\r","").replace("\n", " ")
+        
         # Init done at False
         done = False
         self.screen_passed = False
 
-        for line in l_text:
+        if "Pos" in response_text:
+            pos = re.search(r"Pos\:\s+([-\d\.]+)\,\s([-\d\.]+)", response_text).group(1,2)
+            self.pos_x = float(pos[0])
+            self.pos_y = float(pos[1])
+            observation[0] = self.screen_info.normalize_x(self.pos_x)
+            observation[1] = self.screen_info.normalize_y(self.pos_y)
 
-            if "Pos" in line:
-                # get position
-                pos = line.split(' ')[-2:]
-                self.pos_x = float(pos[0].replace(",",""))
-                self.pos_y = float(pos[1].replace("\r", ""))
+        if "Speed" in response_text:
+            speed = re.search(r"Speed\:\s+([-\d\.]+)\,\s([-\d\.]+)", response_text).group(1,2)
+            observation[2] = float(speed[0])/300
+            observation[3] = float(speed[1])/300
 
-                # Normalise the information
-                observation[0] = self.screen_info.normalize_x(self.pos_x)
-                observation[1] = self.screen_info.normalize_y(self.pos_y)
+        if "Stamina" in response_text:
+            observation[4] = float(re.search(r"Stamina\:\s+([-\d\.]+)", response_text).group(1))/110
 
-            if "Speed" in line:
-                # Only speed is get for now, maybe velocity will be usefull later
-                speed = line.split()
-                observation[2] = float(speed[1].replace(",", ""))/300
-                observation[3] = float(speed[2])/300
+        if "Wall-L" in response_text:
+            observation[5] = -1
+        elif "Wall-R" in response_text:
+            observation[5] = 1
 
-            if "Stamina" in line:
-                # Stamina
-                observation[4] = float(line.split()[1])/110
+        if "StNormal" in response_text:
+            observation[6] = 1
+        elif "StDash" in response_text:
+            observation[7] = 1
+        elif "StClimb" in response_text:
+            observation[8] = 1
 
-            # By default, 0
-            if "Wall-L" in line:
-                observation[5] = -1
-            elif "Wall-R" in line:
-                observation[5] = 1
+        if "CanDash" in response_text:
+            observation[9] = 1
 
-            # NOTE: this does not really make sense. Could be different inputs.
-            if "StNormal" in line:
-                observation[6] = 0
-            elif "StDash" in line:
-                observation[6] = 0.5
-            elif "StClimb" in line:
-                observation[6] = 1
+        if "Coyote" in response_text:
+            observation[10] = int(re.search(r"Coyote\((\d)\)", response_text).group(1)) / 5
 
-            # By default 0
-            if "CanDash" in line:
-                observation[7] = 1
+        if re.search(r"\WJump\(", response_text):
+            observation[11] = int(re.search(r"\WJump\((\d+)\)", response_text).group(1)) / 14
 
-            if "Coyote" in line:
-                observation[8] = int(line.split("Coyote")[1][1]) / 5 # 5 is max value of coyotte
+        if "DashCD" in response_text:
+            observation[12] = int(re.search(r"DashCD\((\d+)\)", response_text).group(1)) / 11
 
-            if "Jump" in line and not "AutoJump" in line and not "IntroJump" in line: # If more than 10
-                if line.split("Jump")[1][2].isnumeric():
-                    value = int(line.split("Jump")[1][1:3])
-                else:
-                    value = int(line.split("Jump")[1][1])
-                observation[9] = value / 14 # 14 is max value of jump
+        if "Dead" in response_text:
+            done = True
+            self.dead = True
 
-            if "DashCD" in line:
-                if line.split("DashCD")[1][2].isnumeric():
-                    value = int(line.split("DashCD")[1][1:3])
-                else:
-                    value = int(line.split("DashCD")[1][1])
-                observation[10] = value / 11 # 14 is max value of jump
-
-            # If dead
-            if "Dead" in line:
-                done = True
-                self.dead = True
-
-            if "Timer" in line:
-                # If screen passed. Only on screen 1 for now, will be change later
-                if f"[{self.screen_info.next_screen_id}]" in line:
-                    self.screen_passed = True
-                    if self.config.one_screen:
-                        done = True
-
-                    else:
-                        if self.screen_info.screen_value == self.config.max_screen_value_test:
-                            done = True
-
-                        else:
-                            self.change_next_screen()
-
-                # Else if the current screen id is not in text, then the wrong screen as been pasted
-                elif f"[{self.screen_info.screen_id}]" not in line:
-                    self.wrong_screen_passed = True
+        if "Timer" in response_text:
+            # If screen passed. Only on screen 1 for now, will be change later
+            screen_id = re.search(rf"\[([^\]]+)\]\sTimer", response_text).group(1)
+            if screen_id == self.screen_info.next_screen_id:
+                self.screen_passed = True
+                if self.config.one_screen or self.screen_info.screen_value == self.config.max_screen_value_test:
                     done = True
+
+                else:
+                    self.change_next_screen()
+
+            # Else if the current screen id is not in text, then the wrong screen as been passed
+            elif screen_id != self.screen_info.screen_id:
+                self.wrong_screen_passed = True
+                done = True
 
         return observation, done
 

@@ -90,16 +90,16 @@ class Config:
         self.action_size = np.array([3,3,2,3,2]) # horizontal, vertical, dash, jump, grab
 
         # Base size of observation
-        self.base_observation_size = 11
+        self.base_observation_size = 13
         # Pos x2 : 0,1
         # Speed x2 : 2,3
         # Stamina : 4
         # Wall-L/R nothing : 5
-        # StNormal/StClimb/StDash : 6
-        # CanDash : 7
-        # Coyote : 8
-        # Jump : 9
-        # DashCD : 10
+        # StNormal/StClimb/StDash : 6,7,8
+        # CanDash : 9
+        # Coyote : 10
+        # Jump : 11
+        # DashCD : 12
 
         # True if the action are given in the observation
         self.give_former_actions = True
