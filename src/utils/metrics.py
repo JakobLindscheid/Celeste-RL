@@ -75,6 +75,7 @@ class Metrics:
 
 
         # Check death
+        # print(reward)
         if reward[-1] == self.config.reward_death and len(reward) < max_steps_ep:
             self.info_level["Death"][-1] += 1
 

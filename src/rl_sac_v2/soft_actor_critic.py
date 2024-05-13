@@ -21,6 +21,7 @@ class ActorCritic():
         self.config_env = config_env
         self.size_histo = 0
         self.action_size = config_env.action_size.shape[0]
+        self.action_size_discrete = config_env.action_size
         
         self.state_size = config_env.base_observation_size
         if config_env.give_goal_coords:
@@ -36,7 +37,7 @@ class ActorCritic():
         self.batch_size = self.config.batch_size
 
 
-        self.actor = ActorNetwork(self.state_size, self.action_size, self.size_image, self.size_histo, self.config)
+        self.actor = ActorNetwork(self.state_size, self.action_size, self.action_size_discrete,self.size_image, self.size_histo, self.config)
 
         self.critic_1 = CriticNetwork(self.state_size, self.action_size, self.size_image, self.size_histo, self.config, name="critic_1")
         self.critic_2 = CriticNetwork(self.state_size, self.action_size, self.size_image, self.size_histo, self.config, name="critic_2")
@@ -67,7 +68,7 @@ class ActorCritic():
         action, _ = self.actor.sample_normal(state, image)
         # discretize the actions
         action = action.cpu().detach().numpy()
-        action = np.trunc((action.reshape(-1) + 1) * self.config_env.action_size / 2)
+        # action = np.trunc((action.reshape(-1) + 1) * self.config_env.action_size / 2)
         return action
 
     def update_network_parameters(self, init=False):

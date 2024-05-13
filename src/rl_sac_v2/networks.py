@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
-
+from torch.distributions import Categorical
 from rl_sac_v2.config_sac import ConfigSac
 
 import numpy as np
 
 class ActorNetwork(nn.Module):
 
-    def __init__(self, state_size, action_size, size_image, histo_size, config: ConfigSac, name="actor"):
+    def __init__(self, state_size, action_size, action_discrete, size_image, histo_size, config: ConfigSac, name="actor"):
         super(ActorNetwork, self).__init__()
 
         self.save_file =  config.file_save_network + "/" + name + ".pt"
@@ -17,6 +17,7 @@ class ActorNetwork(nn.Module):
         self.use_state = not config.only_image_actor
         self.state_size = state_size if self.use_state else 0
         self.action_size = action_size
+        self.action_discrete = action_discrete
         self.size_image = size_image
         self.hidden_size_1 = config.hidden_size
         self.hidden_size_2 = config.hidden_size
@@ -45,10 +46,12 @@ class ActorNetwork(nn.Module):
 
         self.mu = nn.Linear(self.hidden_size_2, action_size)
         self.sigma = nn.Linear(self.hidden_size_2, action_size)
+        self.categorical = nn.Linear(self.hidden_size_2, 15)
 
         self.noise_value = config.noise_value
 
         self.optimizer = optim.Adam(self.parameters(), lr=config.lr)
+        self.softmax = nn.Softmax(dim=-1)
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
@@ -61,26 +64,45 @@ class ActorNetwork(nn.Module):
         else:
             x = self.base(x)
 
-        mu = self.mu(x)
-        sigma = torch.clamp(self.sigma(x), min=self.noise_value, max=1)
-        return mu, sigma
+        # mu = self.mu(x)
+        # sigma = torch.clamp(self.sigma(x), min=self.noise_value, max=1)
+        cate = self.categorical(x)
+        # a = cate[:3]
+        # b = cate[3:6]
+        # c = cate[6:8]
+        # d = cate[8:11]
+        # e = cate[11:]
+        # a = self.softmax(a)
+        # b = self.softmax(b)
+        # c = self.softmax(c)
+        # d = self.softmax(d)
+        # e = self.softmax(e)
+        # return a,b,c,d,e
+        cate = cate.reshape((5,3))
+        cate = self.softmax(cate)
+        return cate
 
 
     def sample_normal(self, state, image=None, reparameterize=True): # TODO: adapt this to new MultiDiscrete space
-        mu, sigma = self.forward(state, image)
-        probabilities = Normal(mu, sigma)
-
+        cate = self.forward(state, image)
+        # print(cate)
+        # probabilities = Normal(mu, sigma)
+        probabilities = Categorical(cate)
+        # print(probabilities)
         if reparameterize:
-            actions = probabilities.rsample()
+            actions = probabilities.sample()
         else:
             actions = probabilities.sample()
-
-        action = torch.tanh(actions).to(self.device)
+        # print(actions)
+        # print(actions)
+        # action = torch.tanh(actions).to(self.device)
+        # print(action)
+        # print(action)
         log_probs = probabilities.log_prob(actions)
-        log_probs -= torch.log(1-action.pow(2)+self.noise_value)
+        # log_probs -= torch.log(1-actions.pow(2)+self.noise_value)
         log_probs = log_probs.sum()
 
-        return action, log_probs
+        return actions, log_probs
 
     def save_model(self):
         torch.save(self.state_dict(), self.save_file)

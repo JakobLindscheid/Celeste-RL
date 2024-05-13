@@ -195,7 +195,7 @@ class CelesteEnv(gym.Env):
             frame_to_add_l2 += ",D"
 
         # dash
-        if actions[2] == 1:
+        if actions[2] == 1 or actions[2]==2:
             frame_to_add_l1 += ",X"
             self.is_dashing = True
         else:
@@ -211,7 +211,7 @@ class CelesteEnv(gym.Env):
             frame_to_add_l2 += ",J"
 
         # grab
-        if actions[4] == 1:
+        if actions[4] == 1 or actions[4]==2:
             frame_to_add_l1 += ",G"
             frame_to_add_l2 += ",G"
 

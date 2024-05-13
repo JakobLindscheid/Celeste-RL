@@ -9,7 +9,7 @@ from celeste_env import CelesteEnv
 from config import Config
 import cv2
 
-import rl_sac as lib
+import rl_sac_v2 as lib
 
 from utils.metrics import Metrics
 
@@ -58,9 +58,9 @@ def main():
                 # For each step
                 image_steps = 0
                 while not terminated and not truncated:
-                    if image_steps %10==0:
-                        screen = env.get_image_game(normalize=False)[0]
-                        cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
+                    # if image_steps %10==0:
+                    #     screen = env.get_image_game(normalize=False)[0]
+                    #     cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
                     # Get the actions
                     # print(state[0][:11])
                     actions = algo.choose_action(state, image)
@@ -89,6 +89,9 @@ def main():
 
 
         for episode_test in range(1, config.nb_test_episode + 1):
+
+            terminated = False
+            truncated = False
 
             # Init the episode reward at 0
             reward_ep = list()
