@@ -90,5 +90,37 @@ hardcoded_screens = [
         y_max=-1260, y_min=-1450,
         goal=[[ 2596, 2612], [-1450, -1450]],
         next_screen_id = "7"
-    )
+    ),
+    ScreenInfo(
+        screen_id="Bissy_00",
+        screen_value=9,
+        start_position = [[184,160], [253,48],[64,120],[152,63],[209,47]],
+        first_frame=58,
+        x_max=315, x_min=0,
+        y_max=0, y_min=-200,
+        goal=[[ 315, 315], [0, 48]],
+        next_screen_id = "Bissy_01",
+        map_id="SpringCollab2020/1-Beginner/Bissy"
+    ),
+    ScreenInfo(
+        screen_id="a-00",
+        screen_value=10,
+        start_position = [[-255,136]],#, [-197,117],[-84,40],[-11,40],[78,-64]],
+        first_frame=58,
+        x_max=139, x_min=-323,
+        y_max=-122, y_min=-179,
+        goal=[[ 139, 139], [-122, -64]],
+        next_screen_id = "a-01",
+        map_id="4"
+    ),
+    # ScreenInfo(
+    #     screen_id="a-01",
+    #     screen_value=9,
+    #     start_position = [[-303,144], [-197,117],[-84,40],[-11,40],[78,-64]],
+    #     first_frame=58,
+    #     x_max=139, x_min=-325,
+    #     y_max=-122, y_min=-200,
+    #     goal=[[ 139, 139], [-122, -64]],
+    #     next_screen_id = "a-01x"
+    # )
 ]
