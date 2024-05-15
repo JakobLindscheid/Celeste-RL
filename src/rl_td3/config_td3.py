@@ -1,7 +1,7 @@
 """Config of SAC file
 """
 
-class ConfigSac:
+class ConfigTD3:
     """Class for the config of SAC
     """
 
@@ -17,16 +17,20 @@ class ConfigSac:
         self.batch_size = 256
         self.epoch = 1
         self.frequency_training = 1
+        self.policy_frequency = 2
 
         self.lr = 3e-4
         self.hidden_size = 1024
         self.size_buffer = 10_000
 
+        self.policy_noise = 0.1
+        self.explore_noise = 0.1
+        self.clipped_noise = 0.5
         
 
         self.init_entropy = 2
-        self.restore_networks = True
-        self.file_save_network = "src/rl_sac_v2/network"
-        self.file_save_memory = "src/rl_sac_v2/memory"
+        self.restore_networks = False
+        self.file_save_network = "src/rl_td3/network"
+        self.file_save_memory = "src/rl_td3/memory"
 
         self.noise_value = 1e-6
