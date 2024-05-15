@@ -29,6 +29,7 @@ class TD3():
         self.clipped_noise = self.config.clipped_noise
         self.action_low = torch.tensor([0,0,0,0,0])
         self.action_high = torch.tensor([3,3,2,3,2])
+        self.max_action = torch.tensor([3,3,2,3,2])
 
 
         self.size_image = config_env.size_image if self.config.use_image_train else None
