@@ -185,7 +185,7 @@ class TD3():
                         #     cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
                         # Get the actions
                         # print(state[0][:11])
-                        actions = self.choose_action(state, image)
+                        actions = self.choose_action([state], [image])
                         # Step the environnement
                         obs, reward, terminated, truncated, _ = env.step(actions)
                         next_state = obs["info"]
@@ -233,7 +233,7 @@ class TD3():
                 while not terminated and not truncated:
 
                     # Get the actions
-                    actions = self.choose_action(state, image)
+                    actions = self.choose_action([state], [image])
 
                     # Step the environnement
                     obs, reward, terminated, truncated, _ = env.step(actions.astype(int))

@@ -55,10 +55,10 @@ class ActorNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, x, image):
-        image = image.transpose(0, 2).transpose(1, 2)
+        image = image.transpose(-3, -1).transpose(-1, -2)
         if self.size_image is not None:
             x_image = self.base_image(image)
-            x = self.base(torch.cat([x, x_image.flatten()])) if self.use_state else self.base(x_image)
+            x = self.base(torch.cat([x, x_image],dim=1)) if self.use_state else self.base(x_image)
         else:
             x = self.base(x)
 
