@@ -3,14 +3,43 @@
 
 import random as r
 import numpy as np
-from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Concatenate
-from keras.models import Model
-import tensorflow as tf
-
-
+import torch.nn as nn
+import torch
 
 from config_multi_qnetworks import ConfigMultiQnetworks
 from config import Config
+
+class DQN(nn.Module):
+    def __init__(self, inputs, hiddens, outputs, histo_size, size_image, image=False) -> None:
+        super(DQN, self).__init__()
+        self.image = image
+        if self.image:
+            self.base_image = nn.Sequential(
+                nn.Conv2d((histo_size+1)*size_image[0], 64, kernel_size=2, padding=0),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(64, 64, kernel_size=3, padding=0),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(64, 32, kernel_size=3, padding=0),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Flatten()
+            )
+        else:
+            self.input = nn.Linear(inputs, hiddens)
+            self.hidden = nn.Linear(hiddens, hiddens)
+            self.output = nn.Linear(hiddens, outputs)
+
+            self.relu = nn.ReLU()
+
+    def forward(self, x):
+        if self.image:
+            out = self.base_image(x)
+        else:
+            out = self.input(x)
+            out = self.relu(out)
+            out = self.hidden(out)
+            out = self.relu(out)
+            out = self.output(out)
+        return out
 
 class MultiQNetwork():
     """Class for Multiple DQN
@@ -45,82 +74,18 @@ class MultiQNetwork():
         self.action_size = config.action_size
 
         # Create Qnetwork model
-        self.q_network = self.build_model()
+        self.q_network = DQN(self.state_size, 128, self.action_size, config.histo_image, config.size_image)
 
         # Create the target network by copying the Qnetwork model
-        self.target_network = tf.keras.models.clone_model(self.q_network)
+        self.target_network = DQN(self.state_size, 128, self.action_size, config.histo_image, config.size_image)
+
+        self.target_network.load_state_dict(self.q_network.state_dict())
+
+        self.optimizer = torch.optim.Adam(self.q_network.parameters(), self.cur_lr)
 
         # Restore the network with saved one
         if self.config.restore_networks:
             self.restore()
-
-
-    def build_model(self):
-        """Create the Qnetwork model
-
-        Returns:
-            Model: Qnetwork model
-        """
-
-        # If simple MLP
-        if self.type_model == "SIMPLE_MLP":
-
-            # Create layer input
-            input_layer = Input(shape=(self.state_size,))
-
-            # Create the main branch of the model
-            dense1 = Dense(128, activation='relu')(input_layer)
-            final_dense = Dense(128, activation='relu')(dense1)
-
-
-
-        # If CNN model (use for image)
-        elif self.type_model == "CNN_MLP":
-
-            # Input for image
-            input_img = Input(shape=self.size_image)
-
-            # CNN Layers
-            conv1 = Conv2D(32, (3, 3), activation='relu')(input_img)
-            pool2 = MaxPooling2D(pool_size=(2, 2))(conv1)
-            conv2 = Conv2D(32, (3, 3), activation='relu')(pool2)
-            pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-            conv3 = Conv2D(16, (3, 3), activation='relu')(pool2)
-            flatten1 = Flatten()(conv3)
-
-            # Input for classic infos
-            input_gps = Input(shape=(self.state_size,))
-
-            # Concat cnn layers and classic input
-            merge = Concatenate()([flatten1, input_gps])
-
-            # Create the main branch of the model
-            dense1 = Dense(1024, activation='relu')(merge)
-            final_dense = Dense(128, activation='relu')(dense1)
-
-            # Define the input layer with the two input layers
-            input_layer = [input_img, input_gps]
-
-        # Output layers
-        outputs = list()
-
-        # For each action
-        for current_action_size in self.action_size:
-
-            # Add MLP layer only for the proper action
-            cur_dense = Dense(128, activation='relu')(final_dense)
-
-            # Output layer
-            outputs.append(Dense(current_action_size, activation='relu')(cur_dense))
-
-        # Create the model
-        model = Model(inputs=input_layer, outputs=outputs)
-
-        # Compile the model
-        model.compile(loss='mse', optimizer= tf.optimizers.Adam(learning_rate=self.cur_lr))
-
-
-        return model
 
     def choose_action(self, state: np.ndarray, available_actions:list=None):
         """Choose the different actions to take
@@ -161,8 +126,6 @@ class MultiQNetwork():
             # If action[0] != 0, Madeline is dashing in a direction, so the directional action is desactivate
             #if index == 1 and actions[0] != 0:
             #    actions[index] = 0
-
-        
 
 
         return actions, None, None
@@ -208,6 +171,9 @@ class MultiQNetwork():
         q_values = [tensor.numpy() for tensor in self.q_network(states)]
         next_q_values = [tensor.numpy() for tensor in self.target_network(next_states)]
 
+        vals = self.q_network(states)
+
+
         # For each q values
         for index, q_value in enumerate(q_values):
 
@@ -221,7 +187,9 @@ class MultiQNetwork():
             q_value[np.arange(self.config.batch_size), actions[:, index]] = target_q_value
 
         # Train the model
-        self.q_network.fit(states, q_values, epochs=3, verbose=0, batch_size=self.config.mini_batch_size)
+        self.optimizer.zero_grad()
+        self.optimizer.step()
+        # self.q_network.fit(states, q_values, epochs=3, verbose=0, batch_size=self.config.mini_batch_size)
 
         # Copy the target newtork if the episode is multiple of the coefficient
         if episode % self.config.nb_episode_copy_target == 0:
@@ -237,35 +205,35 @@ class MultiQNetwork():
     def copy_target_network(self):
         """Set the weight on the target network based on the current q network
         """
-        self.target_network.set_weights(self.q_network.get_weights())
+        self.target_network.load_state_dict(self.q_network.state_dict())
 
     def epsilon_decay(self):
         """Decay espilon
         """
         self.epsilon = self.config.epsilon_decay*self.epsilon
 
-    def lr_decay(self, cur_episode: int):
-        """Decay the learning rate
+    # def lr_decay(self, cur_episode: int):
+    #     """Decay the learning rate
 
-        Args:
-            cur_episode (int): current episode
-        """
-        if cur_episode % self.config.nb_episode_lr_decay == 0:
-            self.cur_lr *= self.config.lr_decay
-            tf.keras.backend.set_value(self.q_network.optimizer.learning_rate, max(self.cur_lr, self.config.min_lr))
-
-
-
-    def restore(self):
-        """Restore the networks based on saved ones
-        """
-        self.q_network = tf.keras.models.load_model(self.save_file)
-        self.q_network.compile(loss='mse', optimizer= tf.optimizers.Adam(learning_rate=self.cur_lr))
-        self.copy_target_network()
+    #     Args:
+    #         cur_episode (int): current episode
+    #     """
+    #     if cur_episode % self.config.nb_episode_lr_decay == 0:
+    #         self.cur_lr *= self.config.lr_decay
+    #         tf.keras.backend.set_value(self.q_network.optimizer.learning_rate, max(self.cur_lr, self.config.min_lr))
 
 
 
-    def save(self):
-        """Save the networks
-        """
-        self.q_network.save(self.save_file)
+    # def restore(self):
+    #     """Restore the networks based on saved ones
+    #     """
+    #     self.q_network = tf.keras.models.load_model(self.save_file)
+    #     self.q_network.compile(loss='mse', optimizer= tf.optimizers.Adam(learning_rate=self.cur_lr))
+    #     self.copy_target_network()
+
+
+
+    # def save(self):
+    #     """Save the networks
+    #     """
+    #     self.q_network.save(self.save_file)
