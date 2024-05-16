@@ -25,11 +25,13 @@ class TD3():
         if config_env.give_screen_value:
             self.state_size += 1        
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
         self.explore_noise = self.config.explore_noise
         self.clipped_noise = self.config.clipped_noise
         self.action_low = torch.tensor([0,0,0,0,0])
         self.action_high = torch.tensor([3,3,2,3,2])
-        self.max_action = torch.tensor([3,3,2,3,2])
+        self.max_action = torch.tensor([3,3,2,3,2]).to(self.device)
 
 
         self.size_image = config_env.size_image if self.config.use_image_train else None
@@ -117,9 +119,10 @@ class TD3():
             return
 
         obs_arr, new_obs_arr, img_arr, new_img_arr, action_arr, reward_arr, dones_arr = self.memory.sample_data(self.batch_size)
+        obs_arr, new_obs_arr, img_arr, new_img_arr, action_arr, reward_arr, dones_arr = obs_arr.to(self.device), new_obs_arr.to(self.device),img_arr.to(self.device), new_img_arr.to(self.device), action_arr.to(self.device), reward_arr.to(self.device), dones_arr.to(self.device)
 
         noise = torch.empty(5).normal_(0,self.policy_noise)
-        noise = noise.clamp(-self.clipped_noise,self.clipped_noise)
+        noise = noise.clamp(-self.clipped_noise,self.clipped_noise).to(self.device)
 
         target_actions = (self.target_actor(obs_arr,img_arr)+noise).clamp(-self.max_action,self.max_action)
 
@@ -128,7 +131,7 @@ class TD3():
             target_Q1 = self.target_critic_1(new_obs_arr, new_img_arr, target_actions)
             target_Q2 = self.target_critic_2(new_obs_arr, new_img_arr, target_actions)
             target_Q = torch.min(target_Q1, target_Q2)
-            target_Q = reward_arr + (dones_arr * self.discount * target_Q).detach()
+            target_Q = reward_arr + (dones_arr * self.gamma * target_Q).detach()
 
         # Get current Q estimates
         current_Q1 = self.critic_1(obs_arr, img_arr, action_arr)
@@ -142,14 +145,14 @@ class TD3():
         self.critic_2.optimizer.step()
 
         if iteration % self.config.policy_frequency == 0:
-            self.target_update()
 
             # Compute actor loss
             actor_loss = -self.critic_1(obs_arr,img_arr,self.actor(obs_arr,img_arr)).mean()        
             # Optimize the actor 
-            self.actor_optimizer.zero_grad()
+            self.actor.optimizer.zero_grad()
             actor_loss.backward()
-            self.actor_optimizer.step()
+            self.actor.optimizer.step()
+            self.target_update()
         return 
     
     def train(self,env,config,metrics):

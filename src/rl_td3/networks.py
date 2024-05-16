@@ -130,6 +130,7 @@ class CriticNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, state, image, action):
+        image = image.transpose(-3, -1).transpose(-1, -2)
         if self.size_image is None:
             return self.base(torch.cat([state, action], dim=1))
         else:

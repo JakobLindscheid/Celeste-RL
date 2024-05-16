@@ -14,7 +14,7 @@ class ConfigTD3:
 
         self.discount_factor = 0.99
         self.tau = 0.005
-        self.batch_size = 256
+        self.batch_size = 64
         self.epoch = 1
         self.frequency_training = 1
         self.policy_frequency = 2
