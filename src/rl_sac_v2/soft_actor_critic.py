@@ -18,9 +18,15 @@ class ActorCritic():
         self.action_mode = "Continuous"
 
         self.config = config_sac
-        self.size_histo = config_env.histo_image
+        self.config_env = config_env
+        self.size_histo = 0
         self.action_size = config_env.action_size.shape[0]
-        self.state_size = config_env.observation_size
+        
+        self.state_size = config_env.base_observation_size
+        if config_env.give_goal_coords:
+            self.state_size += 4
+        if config_env.give_screen_value:
+            self.state_size += 1        
 
         self.size_image = config_env.size_image if self.config.use_image_train else None
         self.use_image = config_env.use_image
@@ -59,7 +65,10 @@ class ActorCritic():
         if self.use_image:
             image = torch.tensor(image, dtype=torch.float).to(self.actor.device)
         action, _ = self.actor.sample_normal(state, image)
-        return action.cpu().detach().numpy()
+        # discretize the actions
+        action = action.cpu().detach().numpy()
+        action = np.trunc((action.reshape(-1) + 1) * self.config_env.action_size / 2)
+        return action
 
     def update_network_parameters(self, init=False):
         tau = 1 if init else self.tau
