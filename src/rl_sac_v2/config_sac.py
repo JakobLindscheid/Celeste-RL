@@ -10,7 +10,7 @@ class ConfigSac:
 
 
         self.use_image_train = True
-        self.only_image_actor = True
+        self.only_image_actor = False
 
         self.discount_factor = 0.99
         self.tau = 0.005

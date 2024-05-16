@@ -8,7 +8,7 @@ class ScreenInfo:
     """Class of screen info
     """
 
-    def __init__(self, screen_id: str, screen_value: int, start_position: list, first_frame: int, tas_file: str,
+    def __init__(self, screen_id: str, screen_value: int, start_position: list, first_frame: int,
                  x_max: float, x_min: float, y_max :float, y_min: float,
                  goal: list, next_screen_id: str):
 
@@ -20,9 +20,6 @@ class ScreenInfo:
 
         # First frame to start
         self.first_frame = first_frame
-
-        # Tas file to init screen
-        self.init_tas_file = tas_file
 
         # X and Y max and min
         self.x_max = x_max
@@ -54,14 +51,12 @@ class ScreenInfo:
     def get_random_start(self):
         """Get random start
         """
-        coords = r.sample(self.start_position, 1)[0]
-        return self.init_tas_file.format(str(coords[0]) + " " + str(coords[1]))
+        return  r.sample(self.start_position, 1)[0]
 
     def get_true_start(self):
         """Get the true start
         """
-        coords = self.start_position[0]
-        return self.init_tas_file.format(str(coords[0]) + " " + str(coords[1]))
+        return self.start_position[0]
     
     def distance_goal(self, pos_x, pos_y):
         """Calcul the distance with the coordonates from the goal
