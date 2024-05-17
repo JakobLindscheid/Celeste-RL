@@ -57,7 +57,7 @@ class Config:
 
         self.prob_screen_used = np.array([1])
         self.prob_screen_used = self.prob_screen_used / np.sum(self.prob_screen_used)
-        
+
         self.max_screen_value = 7
         self.max_screen_value_test = 0
         # Tas file to run for init the first screen
@@ -68,7 +68,7 @@ class Config:
 
         # Path of TAS file
         self.path_tas_file = f"{Path(__file__).parents[1].as_posix()}/file.tas"
-        self.path_tas_file = r"C:\Users\jakob\Desktop\file2.tas"
+        # self.path_tas_file = r"C:\Users\jakob\Desktop\file2.tas"
 
         # Reduction factor of image screen
         self.reduction_factor = 4

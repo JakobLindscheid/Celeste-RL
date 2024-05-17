@@ -29,7 +29,7 @@ class Value(nn.Module):
         return out
 
 class DQN(nn.Module):
-    def __init__(self, inputs, hiddens, action_shape, histo_size, size_image, config: ConfigMultiQnetworks, image=False) -> None:
+    def __init__(self, inputs, hiddens, action_shape, histo_size, size_image, config: ConfigMultiQnetworks, image=True) -> None:
         super(DQN, self).__init__()
 
         self.image = image
@@ -37,8 +37,6 @@ class DQN(nn.Module):
         self.save_file = config.file_save + '/' + 'dqn.pt'
 
         self.action_size = action_shape.shape[0]
-
-        self
 
         if self.image:
             self.base_image = nn.Sequential(
@@ -62,6 +60,7 @@ class DQN(nn.Module):
     def forward(self, x):
         if self.image:
             out = self.base_image(x)
+            print(out.size())
         else:
             out = self.base_state(x)
         return out
