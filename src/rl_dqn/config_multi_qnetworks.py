@@ -23,13 +23,16 @@ class ConfigMultiQnetworks:
         self.mini_batch_size = 128
 
         # Capacity of the memory
-        self.memory_capacity = 50_000
+        self.size_buffer = 10_000
 
         # True if the networks are restored
         self.restore_networks = False
 
         # Gamma value
         self.discount_factor = 0.95
+
+        # Hidden layers
+        self.hidden_layers = 128
 
         # Epsilon configuration
         self.init_epsilon = 0.6

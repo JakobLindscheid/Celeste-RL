@@ -6,13 +6,40 @@ import numpy as np
 import torch.nn as nn
 import torch
 
-from config_multi_qnetworks import ConfigMultiQnetworks
+from rl_dqn.config_multi_qnetworks import ConfigMultiQnetworks
+from rl_dqn.replay_buffer import ReplayBuffer
 from config import Config
 
+class Value(nn.Module):
+    def __init__(self, inputs, action_shape) -> None:
+        super(Value, self).__init__()
+
+        self.outputs = []
+
+        self.action_size = len(action_shape)
+
+        for size in action_shape:
+            self.outputs.append(nn.Linear(inputs, size))
+
+    def forward(self, x):
+        out = []
+        for index in range(self.action_size):
+            out.append(self.outputs[index](x))
+
+        return out
+
 class DQN(nn.Module):
-    def __init__(self, inputs, hiddens, outputs, histo_size, size_image, image=False) -> None:
+    def __init__(self, inputs, hiddens, action_shape, histo_size, size_image, config: ConfigMultiQnetworks, image=False) -> None:
         super(DQN, self).__init__()
+
         self.image = image
+
+        self.save_file = config.file_save + '/' + 'dqn.pt'
+
+        self.action_size = action_shape.shape[0]
+
+        self
+
         if self.image:
             self.base_image = nn.Sequential(
                 nn.Conv2d((histo_size+1)*size_image[0], 64, kernel_size=2, padding=0),
@@ -24,22 +51,26 @@ class DQN(nn.Module):
                 nn.Flatten()
             )
         else:
-            self.input = nn.Linear(inputs, hiddens)
-            self.hidden = nn.Linear(hiddens, hiddens)
-            self.output = nn.Linear(hiddens, outputs)
-
-            self.relu = nn.ReLU()
+            self.base_state = nn.Sequential(
+                nn.Linear(inputs, hiddens),
+                nn.ReLU(),
+                nn.Linear(hiddens, hiddens),
+                nn.ReLU(),
+                Value(hiddens, action_shape)
+            )
 
     def forward(self, x):
         if self.image:
             out = self.base_image(x)
         else:
-            out = self.input(x)
-            out = self.relu(out)
-            out = self.hidden(out)
-            out = self.relu(out)
-            out = self.output(out)
+            out = self.base_state(x)
         return out
+
+    def save_model(self):
+        torch.save(self.state_dict(), self.save_file)
+
+    def load_model(self):
+        self.load_state_dict(torch.load(self.save_file))
 
 class MultiQNetwork():
     """Class for Multiple DQN
@@ -48,6 +79,8 @@ class MultiQNetwork():
 
         # Config of Multiple Qnetwork
         self.config = config_multi_qnetwork
+
+        self.device = config.device
 
         self.action_mode = "Discrete"
 
@@ -60,8 +93,20 @@ class MultiQNetwork():
         # Get the size of the image (will not be used if simple MLP)
         self.size_image = config.size_image
 
+        self.size_histo = 0
+
+        # Observation and action size
+        self.state_size = config.base_observation_size
+        if config.give_goal_coords:
+            self.state_size += 4
+        if config.give_screen_value:
+            self.state_size += 1
+
+        self.action_size = config.action_size.shape[0]
+        self.action_shape = config.action_size
+
         # Memory of each step
-        self.memory = []
+        self.memory = ReplayBuffer(self.config.size_buffer, self.action_size, self.state_size, self.size_image, self.size_histo)
 
         # Current learning rate
         self.cur_lr = self.config.init_lr
@@ -69,15 +114,14 @@ class MultiQNetwork():
         # Current epsilone
         self.epsilon = self.config.init_epsilon
 
-        # Observation and action size
-        self.state_size = config.observation_size
-        self.action_size = config.action_size
+        # count for updating target network
+        self.count = 0
 
         # Create Qnetwork model
-        self.q_network = DQN(self.state_size, 128, self.action_size, config.histo_image, config.size_image)
+        self.q_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork)
 
         # Create the target network by copying the Qnetwork model
-        self.target_network = DQN(self.state_size, 128, self.action_size, config.histo_image, config.size_image)
+        self.target_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork)
 
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -87,7 +131,7 @@ class MultiQNetwork():
         if self.config.restore_networks:
             self.restore()
 
-    def choose_action(self, state: np.ndarray, available_actions:list=None):
+    def choose_action(self, state: np.ndarray, image):
         """Choose the different actions to take
 
         Args:
@@ -98,52 +142,32 @@ class MultiQNetwork():
             np.array: array of action taken
         """
         # Create the action array
-        actions = np.zeros(self.action_size.shape, dtype=np.int32)
+        actions = np.zeros((self.action_size,), dtype=np.int32)
+
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
 
         # Get the action tensor
         list_action_tensor = self.q_network(state)
 
-        # For each action
-        for index, action_tensor in enumerate(list_action_tensor):
-
+        for index, size in enumerate(self.action_shape):
             # If random < epsilon (epsilon have a minimal value)
             if r.random() < max(self.epsilon, self.config.min_epsilon):
-
                 # Get random action probability
-                actions_probs = np.random.rand(self.action_size[index])
+                actions[index] = np.random.randint(0,size)
             else:
+                actions[index] = np.argmax(list_action_tensor[index].detach().numpy())
 
-                # Get QDN action probability
-                actions_probs = action_tensor.numpy()[0]
+        return actions
 
-            # Multiply action probability with available actions to avoid unavailable actions
-            if available_actions is not None:
-                actions_probs = actions_probs * available_actions[index]
-
-            # Get the action
-            actions[index] = np.argmax(actions_probs)
-
-            # If action[0] != 0, Madeline is dashing in a direction, so the directional action is desactivate
-            #if index == 1 and actions[0] != 0:
-            #    actions[index] = 0
-
-
-        return actions, None, None
-
-    def insert_data(self, data: tuple):
+    def insert_data(self, state, new_state, image, new_image, actions_probs, reward, terminated, truncated):
         """Insert the data in the memory
 
         Args:
-            data (tuple): different data put in the memory
+            data: different data put in the memory
         """
-        # Insert the data
-        self.memory.append(data)
+        self.memory.insert_data(state, new_state, image, new_image, actions_probs, reward, terminated)
 
-        # If memory is full, delete the oldest one
-        if len(self.memory) > self.config.memory_capacity:
-            self.memory.pop(0)
-
-    def train(self, episode: int):
+    def train(self):
         """Train the algorithm
 
         Args:
@@ -151,55 +175,48 @@ class MultiQNetwork():
         """
 
         # Do not train if not enough data, not the right episode or not enough episode to start training
-        if len(self.memory) < self.config.batch_size or episode % self.config.nb_episode_learn != 0 or episode < self.config.start_learning:
+        if self.memory.current_size < self.config.batch_size:
             return
 
         # Get the data
-        states, actions, rewards, next_states, dones = zip(*r.sample(self.memory, self.config.batch_size))
+        states, next_states, image, new_image, actions, rewards, dones = self.memory.sample_data(self.config.batch_size)
 
-        # Those line switch the vector of shapes (because of the multiple outputs)
+        q_values = self.q_network(states)
 
-        states = [np.concatenate([states[i][j] for i in range(len(states))], axis=0) for j in range(len(states[0]))]
-        next_states = [np.concatenate([next_states[i][j] for i in range(len(next_states))], axis=0) for j in range(len(next_states[0]))]
-        states = np.array(states).reshape(self.config.batch_size, -1)
-        next_states = np.array(next_states).reshape(self.config.batch_size, -1)
-        actions = np.array(actions)
-        rewards = np.array(rewards)
-        dones = np.array(dones)
+        with torch.no_grad():
+            next_q_values = self.target_network(next_states)
 
-        # Get the q values and next q values
-        q_values = [tensor.numpy() for tensor in self.q_network(states)]
-        next_q_values = [tensor.numpy() for tensor in self.target_network(next_states)]
-
-        vals = self.q_network(states)
-
-
+        loss = 0
         # For each q values
         for index, q_value in enumerate(q_values):
+            # Get the q_values corresponding to the actions
+            actual_q_value = q_value.gather(1, actions[:, index].view(-1,1).type(torch.int64))
+
+            # Get maximal q_values
+            max_next_q_values = torch.max(next_q_values[index], dim=1)[0].view(-1,1)
 
             # Apply the bellman equation of the next q value
-            target_q_value = (next_q_values[index].max(axis=1) * self.config.discount_factor) + rewards
+            target_q_value = (max_next_q_values * (1-dones) * self.config.discount_factor) + rewards
 
-            # Only get the reward if the step has done = True
-            target_q_value[dones] = rewards[dones]
+            loss += nn.functional.huber_loss(actual_q_value, target_q_value)
 
-            # Apply the target value on the q value
-            q_value[np.arange(self.config.batch_size), actions[:, index]] = target_q_value
+        loss.backward()
 
         # Train the model
-        self.optimizer.zero_grad()
         self.optimizer.step()
+        self.optimizer.zero_grad()
         # self.q_network.fit(states, q_values, epochs=3, verbose=0, batch_size=self.config.mini_batch_size)
 
         # Copy the target newtork if the episode is multiple of the coefficient
-        if episode % self.config.nb_episode_copy_target == 0:
+        if self.count % self.config.nb_episode_copy_target == 0:
             self.copy_target_network()
+        self.count += 1
 
         # Decay epsilon
         self.epsilon_decay()
 
         # Decay learning rate
-        self.lr_decay(episode)
+        # self.lr_decay(episode)
 
 
     def copy_target_network(self):
@@ -224,16 +241,10 @@ class MultiQNetwork():
 
 
 
-    # def restore(self):
-    #     """Restore the networks based on saved ones
-    #     """
-    #     self.q_network = tf.keras.models.load_model(self.save_file)
-    #     self.q_network.compile(loss='mse', optimizer= tf.optimizers.Adam(learning_rate=self.cur_lr))
-    #     self.copy_target_network()
+    def save_model(self):
+        self.q_network.save_model()
 
+    def load_model(self):
+        self.q_network.load_model()
+        self.target_network.load_state_dict(self.q_network.state_dict())
 
-
-    # def save(self):
-    #     """Save the networks
-    #     """
-    #     self.q_network.save(self.save_file)
