@@ -52,7 +52,7 @@ def main():
 
                 terminated = False
                 truncated = False
-                
+
                 # For each step
                 while not terminated and not truncated:
 
@@ -79,7 +79,7 @@ def main():
 
                 if ep_reward:
                     metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
-                else: 
+                else:
                     episode_train -= 1
 
 
@@ -92,6 +92,9 @@ def main():
             obs, _ = env.reset(test=True)
             state = obs["info"]
             image = obs["frame"]
+
+            terminated = False
+            truncated = False
 
             # For each step
             while not terminated and not truncated:
