@@ -104,6 +104,8 @@ class MultiQNetwork():
         self.action_size = config.action_size.shape[0]
         self.action_shape = config.action_size
 
+        self.use_image = config.use_image
+
         # Memory of each step
         self.memory = ReplayBuffer(self.config.size_buffer, self.action_size, self.state_size, self.size_image, self.size_histo)
 
@@ -117,10 +119,10 @@ class MultiQNetwork():
         self.count = 0
 
         # Create Qnetwork model
-        self.q_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork)
+        self.q_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork, self.use_image)
 
         # Create the target network by copying the Qnetwork model
-        self.target_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork)
+        self.target_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork, self.use_image)
 
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -143,7 +145,12 @@ class MultiQNetwork():
         # Create the action array
         actions = np.zeros((self.action_size,), dtype=np.int32)
 
-        state = torch.tensor(state, dtype=torch.float).to(self.device)
+        if self.use_image:
+            print("using image")
+            state = torch.tensor(image, dtype=torch.float).to(self.device)
+        else:
+            print("using state")
+            state = torch.tensor(state, dtype=torch.float).to(self.device)
 
         # Get the action tensor
         list_action_tensor = self.q_network(state)
