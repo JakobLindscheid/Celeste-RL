@@ -9,19 +9,32 @@ from celeste_env import CelesteEnv
 from config import Config
 import cv2
 
-import rl_td3 as lib
-
+import argparse
 from utils.metrics import Metrics
 
 absl.logging.set_verbosity(absl.logging.ERROR)
 
-def main():
+def main(algName):
     """Main program
     """
+    if algName == "ppo":
+        import sb_ppo as lib
+    elif algName == "td3":
+        import rl_td3 as lib
+    elif algName == "sac":
+        import rl_sac_v2 as lib
+
+    elif algName == "dqn":
+        import rl_dqn as lib
+    elif algName == "Astar":
+        import astar as lib
+    elif algName == "A2C":
+        import rl_a2c as lib
+
     if torch.cuda.is_available():
         torch.cuda.set_per_process_memory_fraction(0.97)
         torch.cuda.empty_cache()
-
+        
     # Create the instance of the general configuration and algorithm configuration
     config = Config()
     config_algo = lib.ConfigAlgo()
@@ -42,4 +55,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-alg", "--algorithm",
+        help="what alg to use",
+        default="ppo", type=str,
+    )
+    args = parser.parse_args()
+    algName = args.algorithm
+
+    main(algName)

@@ -47,6 +47,7 @@ class CelesteEnv(gym.Env):
         
         self.observation_space = spaces.Dict({
             "frame": spaces.Box(0, 255, tuple(self.config.size_image), dtype=np.uint8),
+            "fail": spaces.Discrete(2),
             "info": spaces.Box(-np.inf, np.inf, (self.config.base_observation_size + self.index_start_obs,), dtype=np.float64)
         })
 
@@ -254,7 +255,7 @@ class CelesteEnv(gym.Env):
         # Get the reward
         reward = self.get_reward()
 
-        return {"frame":screen_obs, "info":self.observation}, reward, terminated, truncated, {}
+        return {"frame":screen_obs, "info":self.observation,"fail":0}, reward, terminated, truncated, {}
 
     def reset(self, test=False, seed=None):
         """Reset the environnement
@@ -318,7 +319,7 @@ class CelesteEnv(gym.Env):
             n_tries += 1
         
         if not synced:
-            return {"frame":[], "info":[],"fail":True}, {}
+            return {"frame":[], "info":[],"fail":1}, {}
         
         self.observation = np.zeros(self.observation_space["info"].shape)
         
@@ -344,7 +345,7 @@ class CelesteEnv(gym.Env):
             # Get the array of the screen
             screen_obs = self.get_image_game()
 
-        return {"frame":screen_obs, "info":self.observation,"fail":False}, {}
+        return {"frame":screen_obs, "info":self.observation,"fail":0}, {}
 
     def change_next_screen(self):
         """Change the screen Maddeline is in.

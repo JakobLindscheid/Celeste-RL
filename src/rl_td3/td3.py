@@ -11,9 +11,9 @@ import torch.optim as optim
 
 class TD3():
 
-    def __init__(self, config_sac: ConfigTD3, config_env: Config) -> None:
+    def __init__(self, config_td3: ConfigTD3, config_env: Config) -> None:
 
-        self.config = config_sac
+        self.config = config_td3
         self.config_env = config_env
         self.size_histo = 0
         self.action_size = config_env.action_size.shape[0]
