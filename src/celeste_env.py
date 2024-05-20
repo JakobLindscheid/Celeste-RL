@@ -112,7 +112,7 @@ class CelesteEnv(gym.Env):
         n_tries = 0
         frozen = False
         correct_frame = False
-        while (not frozen or not correct_frame) and n_tries < 10:
+        while (not frozen or not correct_frame) and n_tries < 20:
 
             # wait a bit
             time.sleep(self.config.sleep*2)
