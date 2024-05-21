@@ -55,10 +55,16 @@ class ValueNetwork(nn.Module):
             x_image = self.base_image(image)
             return self.base(torch.cat([state, x_image], dim=1))
 
-    def save_model(self):
-        torch.save(self.state_dict(), self.save_file)
+    def save_model(self,recent=False):
+        if recent:
+            torch.save(self.state_dict(), self.save_file[:-3]+"_recent.pt")
+        else:
+            torch.save(self.state_dict(), self.save_file)
 
-    def load_model(self):
-        self.load_state_dict(torch.load(self.save_file))
+    def load_model(self,recent=False):
+        if recent:
+            self.load_state_dict(torch.load(self.save_file[:-3]+"_recent.pt"))
+        else:
+            self.load_state_dict(torch.load(self.save_file))
 
 

@@ -1,10 +1,11 @@
 """File for the general config
 """
 
-import numpy as np
-
 from pathlib import Path
+
+import numpy as np
 import torch
+
 
 class Config:
     """Class for the general config
@@ -53,15 +54,16 @@ class Config:
         # Number of frames per action
         self.nb_frame_action = 5
 
-        self.screen_used = [0]
+        self.screen_used = [1]
 
         self.prob_screen_used = np.array([1])
         self.prob_screen_used = self.prob_screen_used / np.sum(self.prob_screen_used)
 
-        self.max_screen_value = 7
+        self.max_screen_value = 11
         self.max_screen_value_test = 0
         # Tas file to run for init the first screen
-        self.init_tas_file = "console load 1 {}\n   38\n***\n# end\n   1"
+        self.init_tas_file = "console load {} {}\n   38\n***\n# end\n   1"
+        # spire: SpringCollab2020/1-Beginner/Bissy
 
         # Basic waiting time (equal to 1 frame)
         self.sleep = 0.016
@@ -120,7 +122,7 @@ class Config:
         self.reward_wrong_screen_passed = 0
 
         # Reward when nothing append
-        self.natural_reward = -1
+        self.natural_reward = -2
 
         # True will set done if screen is based, False only when last screen is passed
         self.one_screen = False

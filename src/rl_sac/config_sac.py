@@ -29,7 +29,7 @@ class ConfigSac:
         self.size_buffer = 10_000
 
         self.alpha = 2
-        self.restore_networks = False
+        self.restore_networks = True
         self.file_save_network = "src/rl_sac/network"
         self.file_save_memory = "src/rl_sac/memory"
 

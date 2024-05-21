@@ -42,7 +42,7 @@ class SoftActorCritic():
         self.update_target_network(init=True)
 
         if self.config.restore_networks:
-            self.load_model()
+            self.load_model(True)
 
         self.has_save_memory = True
         if self.config.activate_supervised_learning_init:
@@ -178,19 +178,19 @@ class SoftActorCritic():
 
         self.update_target_network()
 
-    def save_model(self):
-        self.actor.save_model()
-        self.critic_1.save_model()
-        self.critic_2.save_model()
-        self.value.save_model()
-        self.target_value.save_model()
+    def save_model(self,recent=False):
+        self.actor.save_model(recent)
+        self.critic_1.save_model(recent)
+        self.critic_2.save_model(recent)
+        self.value.save_model(recent)
+        self.target_value.save_model(recent)
 
-    def load_model(self):
-        self.actor.load_model()
-        self.critic_1.load_model()
-        self.critic_2.load_model()
-        self.value.load_model()
-        self.target_value.load_model()
+    def load_model(self,recent=False):
+        self.actor.load_model(recent)
+        self.critic_1.load_model(recent)
+        self.critic_2.load_model(recent)
+        self.value.load_model(recent)
+        self.target_value.load_model(recent)
 
 
 

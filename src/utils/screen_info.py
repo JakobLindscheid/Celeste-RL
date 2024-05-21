@@ -10,7 +10,7 @@ class ScreenInfo:
 
     def __init__(self, screen_id: str, screen_value: int, start_position: list, first_frame: int,
                  x_max: float, x_min: float, y_max :float, y_min: float,
-                 goal: list, next_screen_id: str):
+                 goal: list, next_screen_id: str,map_id:str = "1"):
 
         # Id of the screen
         self.screen_id = screen_id
@@ -37,6 +37,8 @@ class ScreenInfo:
 
         # Id of the next screen (for if multiple possible next screen)
         self.next_screen_id = next_screen_id
+
+        self.map_id = map_id
 
     def normalize_x(self, value: float):
         """Normalize the value on x

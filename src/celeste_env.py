@@ -47,6 +47,7 @@ class CelesteEnv(gym.Env):
 
         self.observation_space = spaces.Dict({
             "frame": spaces.Box(0, 255, tuple(self.config.size_image), dtype=np.uint8),
+            "fail": spaces.Discrete(2),
             "info": spaces.Box(-np.inf, np.inf, (self.config.base_observation_size + self.index_start_obs,), dtype=np.float64)
         })
 
@@ -156,7 +157,7 @@ class CelesteEnv(gym.Env):
 
         if self.game_step != search_frame or not frozen:
             # after 10 loops we give up and reset
-            print(f"Game is desynchronized. Expected: {search_frame}, got: {self.game_step}. Resetting...")
+            # print(f"Game is desynchronized. Expected: {search_frame}, got: {self.game_step}. Resetting...")
             # raise Exception(f"Game is desynchronized. Expected: {search_frame}, got: {self.game_step}")
             return False
         return True
@@ -254,7 +255,7 @@ class CelesteEnv(gym.Env):
         # Get the reward
         reward = self.get_reward()
 
-        return {"frame":screen_obs, "info":self.observation}, reward, terminated, truncated, {}
+        return {"frame":screen_obs, "info":self.observation,"fail":0}, reward, terminated, truncated, {}
 
     def reset(self, test=False, seed=None):
         """Reset the environnement
@@ -286,7 +287,7 @@ class CelesteEnv(gym.Env):
         else:
             start_pos = self.screen_info.get_random_start()
 
-        tas_file = self.init_tas_file.format(str(start_pos[0]) + " " + str(start_pos[1]))
+        tas_file = self.init_tas_file.format(str(self.screen_info.map_id),str(start_pos[0]) + " " + str(start_pos[1]))
 
         # Init the current step
         self.current_step = 0
@@ -310,7 +311,7 @@ class CelesteEnv(gym.Env):
         # Try to sync the game after reset
         synced = False
         n_tries = 0
-        while not synced and n_tries < 10:
+        while not synced and n_tries < 5:
             # Run tas file
             requests.get("http://localhost:32270/tas/playtas?filePath={}".format(self.config.path_tas_file), timeout=0.5)
 
@@ -318,7 +319,7 @@ class CelesteEnv(gym.Env):
             n_tries += 1
 
         if not synced:
-            raise Exception("Could not sync game.")
+            return {"frame":[], "info":[],"fail":1}, {}
 
         self.observation = np.zeros(self.observation_space["info"].shape)
 
@@ -331,7 +332,6 @@ class CelesteEnv(gym.Env):
             # Get the two coords for X and Y (coords create a square goal)
             reward_goal_x = np.array(self.screen_info.goal[0])
             reward_goal_y = np.array(self.screen_info.goal[1])
-
             # Make sure to normalize the values
             self.observation[0:2] = self.screen_info.normalize_x(reward_goal_x)
             self.observation[2:4] = self.screen_info.normalize_y(reward_goal_y)
@@ -345,7 +345,7 @@ class CelesteEnv(gym.Env):
             # Get the array of the screen
             screen_obs = self.get_image_game()
 
-        return {"frame":screen_obs, "info":self.observation}, {}
+        return {"frame":screen_obs, "info":self.observation,"fail":0}, {}
 
     def change_next_screen(self):
         """Change the screen Maddeline is in.
