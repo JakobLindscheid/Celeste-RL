@@ -2,13 +2,15 @@
 """
 
 import random as r
-import numpy as np
-import torch.nn as nn
-import torch
 
+import numpy as np
+import torch
+import torch.nn as nn
+
+from config import Config
 from rl_dqn.config_multi_qnetworks import ConfigMultiQnetworks
 from rl_dqn.replay_buffer import ReplayBuffer
-from config import Config
+
 
 class Value(nn.Module):
     def __init__(self, inputs, action_shape) -> None:
@@ -28,6 +30,15 @@ class Value(nn.Module):
 
         return out
 
+class Print(nn.Module):
+    def __init__(self) -> None:
+        super(Print, self).__init__()
+
+
+    def forward(self, x):
+        print(x.size())
+        return x
+
 class DQN(nn.Module):
     def __init__(self, inputs, hiddens, action_shape, histo_size, size_image, config: ConfigMultiQnetworks, image=True) -> None:
         super(DQN, self).__init__()
@@ -38,31 +49,34 @@ class DQN(nn.Module):
 
         self.action_size = action_shape.shape[0]
 
-        if self.image:
-            self.base_image = nn.Sequential(
-                nn.Conv2d((histo_size+1)*size_image[0], 64, kernel_size=2, padding=0),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Conv2d(64, 64, kernel_size=3, padding=0),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Conv2d(64, 32, kernel_size=3, padding=0),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Flatten()
-            )
-        else:
-            self.base_state = nn.Sequential(
-                nn.Linear(inputs, hiddens),
-                nn.ReLU(),
-                nn.Linear(hiddens, hiddens),
-                nn.ReLU(),
-                Value(hiddens, action_shape)
-            )
+        self.base_image = nn.Sequential(
+            nn.Conv2d((histo_size+1)*size_image[0], 64, kernel_size=3, padding=0),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 32, kernel_size=3, padding=0),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 1, kernel_size=3, padding=0),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+            nn.Linear(20*38, hiddens)
+        )
 
-    def forward(self, x):
-        if self.image:
-            out = self.base_image(x)
-            print(out.size())
-        else:
-            out = self.base_state(x)
+        self.base_state = nn.Sequential(
+            nn.Linear(inputs, hiddens),
+            nn.ReLU(),
+            nn.Linear(hiddens, hiddens),
+            nn.ReLU(),
+        )
+
+        self.base = Value(hiddens+hiddens, action_shape)
+
+    def forward(self, x, image: torch.Tensor):
+        out = self.base_state(x)
+
+        if image is not None:
+            out = torch.cat((out, self.base_image(image).squeeze(1)), 1)
+
+        out = self.base(out)
+
         return out
 
     def save_model(self):
@@ -90,7 +104,8 @@ class MultiQNetwork():
         self.type_model = "SIMPLE_MLP" if not config.use_image else "CNN_MLP"
 
         # Get the size of the image (will not be used if simple MLP)
-        self.size_image = config.size_image
+        self.permutation = (2,0,1)
+        self.size_image = [config.size_image[x] for x in self.permutation]
 
         self.size_histo = 0
 
@@ -119,10 +134,10 @@ class MultiQNetwork():
         self.count = 0
 
         # Create Qnetwork model
-        self.q_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork, self.use_image)
+        self.q_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, self.size_image, config_multi_qnetwork, self.use_image)
 
         # Create the target network by copying the Qnetwork model
-        self.target_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, config.size_image, config_multi_qnetwork, self.use_image)
+        self.target_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, self.size_image, config_multi_qnetwork, self.use_image)
 
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -132,12 +147,12 @@ class MultiQNetwork():
         if self.config.restore_networks:
             self.restore()
 
-    def choose_action(self, state: np.ndarray, image):
+    def choose_action(self, state, image):
         """Choose the different actions to take
 
         Args:
             state (np.array): Current state of the environnement
-            available_actions (list): for each actions, 1 if the action is possible, else 0, if None, all actions are available
+            image (np.array): Current screenshot of the environment
 
         Returns:
             np.array: array of action taken
@@ -145,15 +160,16 @@ class MultiQNetwork():
         # Create the action array
         actions = np.zeros((self.action_size,), dtype=np.int32)
 
-        if self.use_image:
-            print("using image")
-            state = torch.tensor(image, dtype=torch.float).to(self.device)
-        else:
-            print("using state")
-            state = torch.tensor(state, dtype=torch.float).to(self.device)
+        image = torch.tensor(image, dtype=torch.float).permute(self.permutation).to(self.device)
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
+
+        # create batch of 1
+        state = state.unsqueeze(0)
+        image = image.unsqueeze(0)
 
         # Get the action tensor
-        list_action_tensor = self.q_network(state)
+        with torch.no_grad():
+            list_action_tensor = self.q_network(state, image)
 
         for index, size in enumerate(self.action_shape):
             # If random < epsilon (epsilon have a minimal value)
@@ -171,6 +187,8 @@ class MultiQNetwork():
         Args:
             data: different data put in the memory
         """
+        image = torch.permute(torch.from_numpy(image), self.permutation).detach().numpy()
+        new_image = torch.permute(torch.from_numpy(new_image), self.permutation).detach().numpy()
         self.memory.insert_data(state, new_state, image, new_image, actions_probs, reward, terminated)
 
     def train(self):
@@ -187,10 +205,10 @@ class MultiQNetwork():
         # Get the data
         states, next_states, image, new_image, actions, rewards, dones = self.memory.sample_data(self.config.batch_size)
 
-        q_values = self.q_network(states)
+        q_values = self.q_network(states, image)
 
         with torch.no_grad():
-            next_q_values = self.target_network(next_states)
+            next_q_values = self.target_network(next_states, new_image)
 
         loss = 0
         # For each q values

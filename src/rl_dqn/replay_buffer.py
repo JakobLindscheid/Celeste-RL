@@ -64,7 +64,7 @@ class ReplayBuffer:
             self.images = torch.zeros((self.size+1, (self.size_histo+1)*self.image_size[0], self.image_size[1], self.image_size[2]), device=self.image_device)
 
     def save(self):
-        if not os.path.isdir(self.file_save):    
+        if not os.path.isdir(self.file_save):
             os.makedirs(self.file_save)
 
         torch.save(self.states, "{}/states.pt".format(self.file_save))

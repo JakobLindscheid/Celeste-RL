@@ -32,7 +32,7 @@ class CelesteEnv(gym.Env):
 
         # All available screens
         self.screens = hardcoded_screens
-        
+
         # Info about the current screen
         self.screen_info = self.screens[0]
 
@@ -42,9 +42,9 @@ class CelesteEnv(gym.Env):
             self.index_start_obs += 4
         if config.give_screen_value:
             self.index_start_obs += 1
-        
-        self.action_space = spaces.MultiDiscrete(self.config.action_size) 
-        
+
+        self.action_space = spaces.MultiDiscrete(self.config.action_size)
+
         self.observation_space = spaces.Dict({
             "frame": spaces.Box(0, 255, tuple(self.config.size_image), dtype=np.uint8),
             "info": spaces.Box(-np.inf, np.inf, (self.config.base_observation_size + self.index_start_obs,), dtype=np.float64)
@@ -84,12 +84,12 @@ class CelesteEnv(gym.Env):
             if win:
                 win.activate()
                 win.to_top()
-                
+
                 try: # this will fail when run a second time
                     win.set_style("-0xC40000")
                 except:
                     pass
-                
+
                 win.move(x=config.region[0], y=config.region[1], width=config.region[2], height=config.region[3])
                 win.redraw()
             else:
@@ -105,9 +105,9 @@ class CelesteEnv(gym.Env):
 
         # Tas file to init screen
         self.init_tas_file = config.init_tas_file
-        
+
         self.controls_before_start()
-    
+
     def wait_for_game(self, search_frame):
         n_tries = 0
         frozen = False
@@ -136,10 +136,10 @@ class CelesteEnv(gym.Env):
                     current_frame = int(re.search(r"CurrentFrame\:\s(\d+)", response_text).group(1))
                 else:
                     current_frame = None
-                
+
                 # check if the game is in the correct frame
                 correct_frame = self.game_step == search_frame
-                
+
                 # if the game is frozen but not in the correct frame, we need to step the game
                 if not correct_frame and frozen and current_frame is not None:
                     # 2 causes:
@@ -153,7 +153,7 @@ class CelesteEnv(gym.Env):
                         # this should be avoided as it is slow
                         print(f"Advancing frames {self.game_step} / {search_frame}.")
                         requests.get("http://localhost:32270/tas/sendhotkey?id=FrameAdvance", timeout=5)
-        
+
         if self.game_step != search_frame or not frozen:
             # after 10 loops we give up and reset
             print(f"Game is desynchronized. Expected: {search_frame}, got: {self.game_step}. Resetting...")
@@ -185,7 +185,7 @@ class CelesteEnv(gym.Env):
         if actions[0] == 0:
             frame_to_add_l1 += ",L"
             frame_to_add_l2 += ",L"
-        
+
         # vertical
         if actions[1] == 2:
             frame_to_add_l1 += ",U"
@@ -230,7 +230,7 @@ class CelesteEnv(gym.Env):
 
         # Run the tas file
         requests.get("http://localhost:32270/tas/playtas?filePath={}".format(self.config.path_tas_file), timeout=5)
-        
+
         synced = self.wait_for_game(search_frame=self.game_step + self.config.nb_frame_action)
 
         # Get observation and done info
@@ -316,12 +316,12 @@ class CelesteEnv(gym.Env):
 
             synced = self.wait_for_game(search_frame=1)
             n_tries += 1
-        
+
         if not synced:
             raise Exception("Could not sync game.")
-        
+
         self.observation = np.zeros(self.observation_space["info"].shape)
-        
+
         # Get the observation of Madeline, no use for Done because it can not be True at reset
         madeline_info, _ = self.get_madeline_info(reset=True)
         self.observation[self.index_start_obs:] = madeline_info
@@ -407,7 +407,7 @@ class CelesteEnv(gym.Env):
         pooling_size = self.config.reduction_factor
 
         frame = frame[0::pooling_size, 0::pooling_size, :]
-        
+
         return frame
 
     def get_madeline_info(self, reset=False):
@@ -426,7 +426,7 @@ class CelesteEnv(gym.Env):
         # Run "http://localhost:32270/tas/info" on a navigator to understand the information gotten
         response = requests.get("http://localhost:32270/tas/info", timeout=5)
         response_text = BeautifulSoup(response.content, "html.parser").text.replace("\r","").replace("\n", " ")
-        
+
         # Init done at False
         done = False
         self.screen_passed = False
@@ -540,7 +540,7 @@ class CelesteEnv(gym.Env):
         out.release()
 
     def controls_before_start(self):
-        """Controls before the start of the test: 
+        """Controls before the start of the test:
         - Make sure that the init tas file work
         - Check the screen
         """

@@ -14,10 +14,10 @@ class ConfigMultiQnetworks:
         self.nb_episode_learn = 1
 
         # Copy the targer network each *this value* of episodes
-        self.nb_episode_copy_target = 2
+        self.nb_episode_copy_target = 10
 
         # Batch size when training
-        self.batch_size = 128
+        self.batch_size = 16
 
         # Batch size of the fitting method
         self.mini_batch_size = 128
