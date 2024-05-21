@@ -12,7 +12,8 @@ class CheckpointCallback(BaseCallback):
     ):
         super().__init__(verbose)
         self.save_freq = save_freq
-        self.save_path = os.path.join(save_path, "rl_model.zip")
+        self.save_path = os.path.join(save_path, "rl_model/")
+        # self.save_path =save_path
 
     def _init_callback(self) -> None:
         # Create folder if needed

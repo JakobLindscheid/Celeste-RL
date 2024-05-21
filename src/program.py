@@ -27,7 +27,8 @@ def main(algName):
     elif algName == "dqn":
         import rl_dqn as lib
     elif algName == "Astar":
-        import astar as lib
+        # import astar as lib
+        pass
     elif algName == "A2C":
         import rl_a2c as lib
 
