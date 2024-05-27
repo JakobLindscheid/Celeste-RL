@@ -35,7 +35,7 @@ class Config:
         self.nb_test_episode = 10
 
         # True if the image is used for learning
-        self.use_image = True
+        self.use_image = False
 
         # True if you want a video for the best test
         self.video_best_screen = True
@@ -54,7 +54,7 @@ class Config:
         # Number of frames per action
         self.nb_frame_action = 5
 
-        self.screen_used = [1]
+        self.screen_used = [0]
 
         self.prob_screen_used = np.array([1])
         self.prob_screen_used = self.prob_screen_used / np.sum(self.prob_screen_used)

@@ -8,87 +8,15 @@ import torch
 import torch.nn as nn
 
 from config import Config
-from rl_dqn.config_multi_qnetworks import ConfigMultiQnetworks
 from rl_dqn.replay_buffer import ReplayBuffer
+from rl_dqn.config_dqn import ConfigDQN
+from rl_dqn.networks import DQNet
 
 
-class Value(nn.Module):
-    def __init__(self, inputs, action_shape) -> None:
-        super(Value, self).__init__()
-
-        self.outputs = []
-
-        self.action_size = len(action_shape)
-
-        for size in action_shape:
-            self.outputs.append(nn.Linear(inputs, size))
-
-    def forward(self, x):
-        out = []
-        for index in range(self.action_size):
-            out.append(self.outputs[index](x))
-
-        return out
-
-class Print(nn.Module):
-    def __init__(self) -> None:
-        super(Print, self).__init__()
-
-
-    def forward(self, x):
-        print(x.size())
-        return x
-
-class DQN(nn.Module):
-    def __init__(self, inputs, hiddens, action_shape, histo_size, size_image, config: ConfigMultiQnetworks, image=True) -> None:
-        super(DQN, self).__init__()
-
-        self.image = image
-
-        self.save_file = config.file_save + '/' + 'dqn.pt'
-
-        self.action_size = action_shape.shape[0]
-
-        self.base_image = nn.Sequential(
-            nn.Conv2d((histo_size+1)*size_image[0], 64, kernel_size=3, padding=0),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 32, kernel_size=3, padding=0),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(32, 1, kernel_size=3, padding=0),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Flatten(),
-            nn.Linear(20*38, hiddens)
-        )
-
-        self.base_state = nn.Sequential(
-            nn.Linear(inputs, hiddens),
-            nn.ReLU(),
-            nn.Linear(hiddens, hiddens),
-            nn.ReLU(),
-        )
-
-        self.base = Value(hiddens+hiddens, action_shape)
-
-    def forward(self, x, image: torch.Tensor):
-        out = self.base_state(x)
-
-        if image is not None:
-            out = torch.cat((out, self.base_image(image).squeeze(1)), 1)
-
-        out = self.base(out)
-
-        return out
-
-    def save_model(self):
-        torch.save(self.state_dict(), self.save_file)
-
-    def load_model(self):
-        self.load_state_dict(torch.load(self.save_file))
-
-class MultiQNetwork():
+class DQN():
     """Class for Multiple DQN
     """
-    def __init__(self, config_multi_qnetwork: ConfigMultiQnetworks, config: Config):
+    def __init__(self, config_multi_qnetwork: ConfigDQN, config: Config):
 
         # Config of Multiple Qnetwork
         self.config = config_multi_qnetwork
@@ -100,12 +28,17 @@ class MultiQNetwork():
         # Save file
         self.save_file = self.config.file_save + "/network.pt"
 
+        self.use_image = config.use_image
+
         # Get the right model
-        self.type_model = "SIMPLE_MLP" if not config.use_image else "CNN_MLP"
+        self.type_model = "SIMPLE_MLP" if not self.use_image else "CNN_MLP"
 
         # Get the size of the image (will not be used if simple MLP)
-        self.permutation = (2,0,1)
-        self.size_image = [config.size_image[x] for x in self.permutation]
+        if self.use_image:
+            self.permutation = (2,0,1)
+            self.size_image = np.array([config.size_image[x] for x in self.permutation])
+        else:
+            self.size_image = None
 
         self.size_histo = 0
 
@@ -118,8 +51,6 @@ class MultiQNetwork():
 
         self.action_size = config.action_size.shape[0]
         self.action_shape = config.action_size
-
-        self.use_image = config.use_image
 
         # Memory of each step
         self.memory = ReplayBuffer(self.config.size_buffer, self.action_size, self.state_size, self.size_image, self.size_histo)
@@ -134,10 +65,10 @@ class MultiQNetwork():
         self.count = 0
 
         # Create Qnetwork model
-        self.q_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, self.size_image, config_multi_qnetwork, self.use_image)
+        self.q_network = DQNet(self.state_size, self.action_shape, self.size_image, config_multi_qnetwork, self.use_image)
 
         # Create the target network by copying the Qnetwork model
-        self.target_network = DQN(self.state_size, self.config.hidden_layers, self.action_shape, self.size_histo, self.size_image, config_multi_qnetwork, self.use_image)
+        self.target_network = DQNet(self.state_size, self.action_shape, self.size_image, config_multi_qnetwork, self.use_image)
 
         self.target_network.load_state_dict(self.q_network.state_dict())
 
@@ -160,12 +91,11 @@ class MultiQNetwork():
         # Create the action array
         actions = np.zeros((self.action_size,), dtype=np.int32)
 
-        image = torch.tensor(image, dtype=torch.float).permute(self.permutation).to(self.device)
         state = torch.tensor(state, dtype=torch.float).to(self.device)
-
-        # create batch of 1
         state = state.unsqueeze(0)
-        image = image.unsqueeze(0)
+        if self.use_image:
+            image = torch.tensor(image, dtype=torch.float).permute(self.permutation).to(self.device)
+            image = image.unsqueeze(0)
 
         # Get the action tensor
         with torch.no_grad():
@@ -187,8 +117,9 @@ class MultiQNetwork():
         Args:
             data: different data put in the memory
         """
-        image = torch.permute(torch.from_numpy(image), self.permutation).detach().numpy()
-        new_image = torch.permute(torch.from_numpy(new_image), self.permutation).detach().numpy()
+        if self.use_image:
+            image = torch.permute(torch.from_numpy(image), self.permutation).detach().numpy()
+            new_image = torch.permute(torch.from_numpy(new_image), self.permutation).detach().numpy()
         self.memory.insert_data(state, new_state, image, new_image, actions_probs, reward, terminated)
 
     def calculate_loss(self):
@@ -229,7 +160,6 @@ class MultiQNetwork():
         # Train the model
         self.optimizer.step()
         self.optimizer.zero_grad()
-        # self.q_network.fit(states, q_values, epochs=3, verbose=0, batch_size=self.config.mini_batch_size)
 
         # Copy the target newtork if the episode is multiple of the coefficient
         if self.count % self.config.nb_episode_copy_target == 0:
@@ -243,8 +173,9 @@ class MultiQNetwork():
         # self.lr_decay(episode)
 
     def train(self,env,config,metrics):
+        learning_step = 1
         # For every episode
-        for learning_step in range(1, config.nb_learning_step + 1):
+        while learning_step < config.nb_learning_step + 1:
 
             # Reset nb terminated
             metrics.nb_terminated_train = 0
@@ -254,12 +185,12 @@ class MultiQNetwork():
                 while episode_train < config.nb_train_episode + 1:
 
                     # Reset the environnement
-                    obs, _ = env.reset(test=True)
+                    obs, _ = env.reset()
                     state = obs["info"]
                     image = obs["frame"]
                     while obs["fail"]:
                         print("failed to sync try respawn")
-                        obs, _ = env.reset(test=True)
+                        obs, _ = env.reset()
                         state = obs["info"]
                         image = obs["frame"]
 
@@ -299,9 +230,10 @@ class MultiQNetwork():
                     if ep_reward:
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
+                        learning_step += 1
 
-
-            for episode_test in range(1, config.nb_test_episode + 1):
+            episode_test = 1
+            while episode_test < config.nb_test_episode + 1:
 
                 terminated = False
                 truncated = False
@@ -364,7 +296,7 @@ class MultiQNetwork():
             # Save the model (will be True only if new max reward)
             if save_model:
                 self.save_model()
-            self.save_model(True)
+            self.save_model()
 
             if restore:
                 self.load_model()

@@ -1,7 +1,7 @@
 """Config of Multiple DQN file
 """
 
-class ConfigMultiQnetworks:
+class ConfigDQN:
     """Class for the config of Multiple  DQN
     """
 
