@@ -44,6 +44,9 @@ class ActorNetwork(nn.Module):
             nn.ReLU()
         )
 
+        self.mu = nn.Linear(self.hidden_size_2, action_size)
+        self.std = nn.Linear(self.hidden_size_2, action_size)
+
         self.last = nn.Linear(self.hidden_size_2, action_size)
 
         self.noise_value = config.noise_value
@@ -55,21 +58,23 @@ class ActorNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, x, image):
-        image = image.transpose(-3, -1).transpose(-1, -2)
         if self.size_image is not None:
+            image = image.transpose(-3, -1).transpose(-1, -2)
             x_image = self.base_image(image)
             x = self.base(torch.cat([x, x_image],dim=1)) if self.use_state else self.base(x_image)
         else:
             x = self.base(x)
 
-        x = torch.tanh(self.last(x))
+        x = torch.tanh(x)
+        mu = self.mu(x)
+        std = torch.clamp(self.std(x), min=1e-6, max=1)
 
-        return x
+        return mu,std
 
 
     def sample_normal(self, state, image=None):
-        actions = self.forward(state, image)
-        return actions
+        mu,sigma = self.forward(state, image)
+        return mu,sigma
 
     def save_model(self,recent=False):
         if recent:
@@ -117,7 +122,7 @@ class CriticNetwork(nn.Module):
             size_output_image = 0
 
         self.base = nn.Sequential(
-            nn.Linear(size_output_image+state_size+action_size, self.hidden_size_1),
+            nn.Linear(size_output_image+state_size+action_size*2, self.hidden_size_1),
             nn.ReLU(),
             nn.Linear(self.hidden_size_1, self.hidden_size_2),
             nn.ReLU(),
@@ -130,10 +135,10 @@ class CriticNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, state, image, action):
-        image = image.transpose(-3, -1).transpose(-1, -2)
         if self.size_image is None:
             return self.base(torch.cat([state, action], dim=1))
         else:
+            image = image.transpose(-3, -1).transpose(-1, -2)
             flat_image = self.base_image(image)
             return self.base(torch.cat([state, flat_image,action], dim=1))
 

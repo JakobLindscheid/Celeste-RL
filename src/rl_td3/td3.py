@@ -3,7 +3,7 @@ from rl_td3.networks import ActorNetwork, CriticNetwork
 from rl_td3.replay_buffer import ReplayBuffer
 from rl_td3.config_td3 import ConfigTD3
 from config import Config
-
+from torch.distributions import Normal
 import numpy as np
 import torch
 from torch.nn import functional as F
@@ -29,10 +29,10 @@ class TD3():
 
         self.explore_noise = self.config.explore_noise
         self.clipped_noise = self.config.clipped_noise
-        self.action_low = torch.tensor([0,0,0,0,0])
-        self.action_high = torch.tensor([3,3,2,3,2])
-        self.max_action = torch.tensor([3,3,2,3,2]).to(self.device)
-
+        self.action_low = torch.tensor([1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6])
+        self.action_high = torch.tensor([2.99,2.99,1.99,2.99,1.99,1.0,1.0,1.0,1.0,1.0])
+        self.max_action = torch.tensor([3,3,2,3,2,1,1,1,1,1]).to(self.device)
+        self.min_action = torch.tensor([1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6,1e-6]).to(self.device)
 
         self.size_image = config_env.size_image if self.config.use_image_train else None
         self.use_image = config_env.use_image
@@ -71,13 +71,27 @@ class TD3():
         state = torch.tensor(state, dtype=torch.float).to(self.actor.device)        
         if self.use_image:
             image = torch.tensor(image, dtype=torch.float).to(self.actor.device)
-        action = self.actor.sample_normal(state, image)
+        mu,sigma = self.actor.sample_normal(state, image)
         # discretize the actions
-        action = action.cpu().detach().numpy().flatten()
+        
+        # action = action.cpu().detach().numpy().flatten()
         if self.explore_noise != 0:
-            action = (action + np.random.normal(0,self.explore_noise,size=5))
-        return action.clip(self.action_low,self.action_high)
+            mu = (mu + torch.tensor(np.random.normal(0,self.explore_noise[:5],size=5),dtype=torch.float32).to(self.device))
+            sigma = (sigma + torch.tensor(np.random.normal(0,self.explore_noise[5:],size=5),dtype=torch.float32).to(self.device))
 
+        print(mu,sigma)
+        # action =  action.clip(self.action_low,self.action_high)
+        mu = torch.clamp(mu, min=torch.tensor(self.action_low[:5]).to(self.device), max=torch.tensor(self.action_high[:5]).to(self.device))
+        sigma = torch.clamp(sigma, min=torch.tensor(self.action_low[5:]).to(self.device), max=torch.tensor(self.action_high[5:]).to(self.device))
+        # mu,sigma = torch.tensor(action[:5]),torch.tensor(action[5:])
+        # print(mu,sigma,type(mu),type(sigma))
+        probabilities = Normal(mu,sigma)
+        actions = probabilities.sample()
+        actions = actions.cpu().detach().numpy().flatten()
+        actions = np.trunc((actions.reshape(-1)))
+        # print(actions)
+        return actions,torch.cat([mu, sigma],dim=1)
+    
     def target_update(self, init=False):
         tau = 1 if init else self.tau
 
@@ -119,12 +133,16 @@ class TD3():
             return
 
         obs_arr, new_obs_arr, img_arr, new_img_arr, action_arr, reward_arr, dones_arr = self.memory.sample_data(self.batch_size)
-        obs_arr, new_obs_arr, img_arr, new_img_arr, action_arr, reward_arr, dones_arr = obs_arr.to(self.device), new_obs_arr.to(self.device),img_arr.to(self.device), new_img_arr.to(self.device), action_arr.to(self.device), reward_arr.to(self.device), dones_arr.to(self.device)
+        obs_arr, new_obs_arr, action_arr, reward_arr, dones_arr = obs_arr.to(self.device), new_obs_arr.to(self.device), action_arr.to(self.device), reward_arr.to(self.device), dones_arr.to(self.device)
 
-        noise = torch.empty(5).normal_(0,self.policy_noise)
+        if img_arr != None:
+            img_arr.to(self.device), new_img_arr.to(self.device)
+
+        noise = torch.empty(10).normal_(0,self.policy_noise)
         noise = noise.clamp(-self.clipped_noise,self.clipped_noise).to(self.device)
 
-        target_actions = (self.target_actor(obs_arr,img_arr)+noise).clamp(-self.max_action,self.max_action)
+        target_mu,target_std = self.target_actor(obs_arr,img_arr)
+        target_actions = (torch.cat([target_mu, target_std],dim=1)+noise).clamp(self.min_action,self.max_action)
 
         # Compute the target Q value
         with torch.no_grad():
@@ -147,7 +165,8 @@ class TD3():
         if iteration % self.config.policy_frequency == 0:
 
             # Compute actor loss
-            actor_loss = -self.critic_1(obs_arr,img_arr,self.actor(obs_arr,img_arr)).mean()        
+            mu,std = self.actor(obs_arr,img_arr)
+            actor_loss = -self.critic_1(obs_arr,img_arr,torch.cat([mu, std],dim=1)).mean()        
             # Optimize the actor 
             self.actor.optimizer.zero_grad()
             actor_loss.backward()
@@ -167,12 +186,12 @@ class TD3():
                 while episode_train < config.nb_train_episode + 1:
 
                     # Reset the environnement
-                    obs, _ = env.reset(test=True)
+                    obs, _ = env.reset(test=False)
                     state = obs["info"]
                     image = obs["frame"]
                     while obs["fail"]:
                         print("failed to sync try respawn")
-                        obs, _ = env.reset(test=True)
+                        obs, _ = env.reset(test=False)
                         state = obs["info"]
                         image = obs["frame"]
 
@@ -189,7 +208,8 @@ class TD3():
                         #     cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
                         # Get the actions
                         # print(state[0][:11])
-                        actions = self.choose_action([state], [image])
+                        actions,actions2 = self.choose_action([state], [image])
+                        # actions = torch.trunc(actions)
                         # Step the environnement
                         obs, reward, terminated, truncated, _ = env.step(actions)
                         next_state = obs["info"]
@@ -197,7 +217,7 @@ class TD3():
 
                         if not truncated:
                             # Insert the data in the algorithm memory
-                            self.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
+                            self.insert_data(state, next_state, image, next_image, actions2, reward, terminated, truncated)
 
 
                             # Actualise state
@@ -237,10 +257,10 @@ class TD3():
                 while not terminated and not truncated:
 
                     # Get the actions
-                    actions = self.choose_action([state], [image])
-
+                    actions,actions2 = self.choose_action([state], [image])
+                    # actions = torch.trunc(actions)
                     # Step the environnement
-                    obs, reward, terminated, truncated, _ = env.step(actions.astype(int))
+                    obs, reward, terminated, truncated, _ = env.step(actions)
                     next_state = obs["info"]
                     next_image = obs["frame"]
 
@@ -250,7 +270,7 @@ class TD3():
 
                     # Add the reward to the episode reward
                     reward_ep.append(reward)
-
+                save_model,restore = False,False
                 if not truncated:
                     # Insert the metrics
                     save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
@@ -286,7 +306,7 @@ class TD3():
 
     def save_model(self,recent=False):
         self.actor.save_model(recent)
-        self.actor_target.save_model(recent)
+        self.target_actor.save_model(recent)
         self.critic_1.save_model(recent)
         self.critic_2.save_model(recent)
         self.target_critic_1.save_model(recent)
@@ -298,7 +318,7 @@ class TD3():
 
     def load_model(self,recent=False):
         self.actor.load_model(recent)
-        self.actor_target.load_model(recent)
+        self.target_actor.load_model(recent)
         self.critic_1.load_model(recent)
         self.critic_2.load_model(recent)
         self.target_critic_1.load_model(recent)

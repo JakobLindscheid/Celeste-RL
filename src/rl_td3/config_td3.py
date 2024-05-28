@@ -9,7 +9,7 @@ class ConfigTD3:
 
 
 
-        self.use_image_train = True
+        self.use_image_train = False
         self.only_image_actor = False
 
         self.discount_factor = 0.99
@@ -23,13 +23,13 @@ class ConfigTD3:
         self.hidden_size = 1024
         self.size_buffer = 10_000
 
-        self.policy_noise = 0.1
-        self.explore_noise = 0.1
+        self.policy_noise = 0.2
+        self.explore_noise = [0.6,0.6,0.2,0.3,0.2,0.2,0.2,0.2,0.2,0.2]
         self.clipped_noise = 0.5
         
 
         self.init_entropy = 2
-        self.restore_networks = False
+        self.restore_networks = True
         self.file_save_network = "src/rl_td3/network"
         self.file_save_memory = "src/rl_td3/memory"
 
