@@ -102,12 +102,12 @@ class A2C():
             if learning_step > 1 or not config.start_with_test:
                 episode_train = 1
                 while episode_train < config.nb_train_episode + 1:
-                    obs, _ = env.reset(test=True)
+                    obs, _ = env.reset(test=False)
                     state = obs["info"]
                     image = obs["frame"]
                     while obs["fail"]:
                         print("failed to sync try respawn")
-                        obs, _ = env.reset(test=True)
+                        obs, _ = env.reset(test=False)
                         state = obs["info"]
                         image = obs["frame"]
 
