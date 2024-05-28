@@ -4,7 +4,7 @@ hardcoded_screens = [
     ScreenInfo(
         screen_id="1",
         screen_value=0,
-        start_position = [[19, 144], [19, 144], [19, 144], [90, 128], [160, 80],  [260, 56]],
+        start_position = [[19, 144], [90, 128], [160, 80],  [260, 56]],
         first_frame=58,
         x_max=308, x_min=12,
         y_max=195, y_min=0,
