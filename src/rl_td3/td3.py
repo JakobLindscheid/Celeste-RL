@@ -71,27 +71,35 @@ class TD3():
         state = torch.tensor(state, dtype=torch.float).to(self.actor.device)        
         if self.use_image:
             image = torch.tensor(image, dtype=torch.float).to(self.actor.device)
+
+        # call the actor network for mu and sigma 
         mu,sigma = self.actor.sample_normal(state, image)
-        # discretize the actions
         
-        # action = action.cpu().detach().numpy().flatten()
+        # add noise for exploration
         if self.explore_noise != 0:
             mu = (mu + torch.tensor(np.random.normal(0,self.explore_noise[:5],size=5),dtype=torch.float32).to(self.device))
             sigma = (sigma + torch.tensor(np.random.normal(0,self.explore_noise[5:],size=5),dtype=torch.float32).to(self.device))
 
         print(mu,sigma)
-        # action =  action.clip(self.action_low,self.action_high)
+        # clamp to make the actions in the correct range
         mu = torch.clamp(mu, min=torch.tensor(self.action_low[:5]).to(self.device), max=torch.tensor(self.action_high[:5]).to(self.device))
         sigma = torch.clamp(sigma, min=torch.tensor(self.action_low[5:]).to(self.device), max=torch.tensor(self.action_high[5:]).to(self.device))
-        # mu,sigma = torch.tensor(action[:5]),torch.tensor(action[5:])
-        # print(mu,sigma,type(mu),type(sigma))
+        
+        # sample for mean and sigma
         probabilities = Normal(mu,sigma)
         actions = probabilities.sample()
         actions = actions.cpu().detach().numpy().flatten()
+
+        # truncate to make them integers
         actions = np.trunc((actions.reshape(-1)))
-        # print(actions)
+
+        # return actions and mu sigma for backpropogation later on
         return actions,torch.cat([mu, sigma],dim=1)
     
+
+    """"
+    update the corresponding target network for actor and critic 1 and 2
+    """
     def target_update(self, init=False):
         tau = 1 if init else self.tau
 
@@ -124,6 +132,9 @@ class TD3():
 
         self.target_actor.load_state_dict(actor_params)
 
+    """
+    calculate loss every step according to TD3 algorithm
+    """
     def calculate_loss(self,iteration):
 
         if self.memory.current_size < self.batch_size:
@@ -203,13 +214,8 @@ class TD3():
                     # For each step
                     image_steps = 0
                     while not terminated and not truncated:
-                        # if image_steps %10==0:
-                        #     screen = env.get_image_game(normalize=False)[0]
-                        #     cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
-                        # Get the actions
-                        # print(state[0][:11])
+
                         actions,actions2 = self.choose_action([state], [image])
-                        # actions = torch.trunc(actions)
                         # Step the environnement
                         obs, reward, terminated, truncated, _ = env.step(actions)
                         next_state = obs["info"]
@@ -217,6 +223,7 @@ class TD3():
 
                         if not truncated:
                             # Insert the data in the algorithm memory
+                            # save the concatenated mu and sigma for the actions to backpropogate
                             self.insert_data(state, next_state, image, next_image, actions2, reward, terminated, truncated)
 
 
