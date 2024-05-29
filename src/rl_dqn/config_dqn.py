@@ -1,7 +1,7 @@
 """Config of Multiple DQN file
 """
 
-class ConfigMultiQnetworks:
+class ConfigDQN:
     """Class for the config of Multiple  DQN
     """
 
@@ -14,22 +14,25 @@ class ConfigMultiQnetworks:
         self.nb_episode_learn = 1
 
         # Copy the targer network each *this value* of episodes
-        self.nb_episode_copy_target = 2
+        self.nb_episode_copy_target = 10
 
         # Batch size when training
-        self.batch_size = 128
+        self.batch_size = 16
 
         # Batch size of the fitting method
         self.mini_batch_size = 128
 
         # Capacity of the memory
-        self.memory_capacity = 50_000
+        self.size_buffer = 10_000
 
         # True if the networks are restored
         self.restore_networks = False
 
         # Gamma value
         self.discount_factor = 0.95
+
+        # Hidden layers
+        self.hidden_layers = 128
 
         # Epsilon configuration
         self.init_epsilon = 0.6
