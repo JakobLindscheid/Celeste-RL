@@ -18,7 +18,7 @@ def main(algName):
     """Main program
     """
     if algName == "ppo":
-        import sb_ppo as lib
+        import rl_ppo as lib
     elif algName == "td3":
         import rl_td3 as lib
     elif algName == "sac":

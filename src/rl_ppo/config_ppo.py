@@ -1,25 +1,29 @@
-"""Config of PPO file
-"""
-
 class ConfigPPO:
     """Class for the config of PPO
     """
 
     def __init__(self) -> None:
 
-        self.size_buffer = 150
+        self.use_image_train = True
+        self.only_image_actor = False
 
         self.discount_factor = 0.99
-        self.standardize = True
+        self.tau = 0.005
+        self.batch_size = 256
+        self.epoch = 1
+        self.frequency_training = 1
+        self.clip_epsilon = 1e-5
 
-        self.coef_entropy = 0.05
-        self.coef_critic = 0.5
+        self.lr = 3e-4
+        self.hidden_size = 1024
+        self.size_buffer = 10_000
 
-        self.nb_epochs = 8
+        self.init_entropy = 2
+        self.restore_networks = True
+        self.file_save_network = "src/rl_ppo/network"
+        self.file_save_memory = "src/rl_ppo/memory"
 
-        self.clip_value = 0.2
-
-        self.lr = 0.001
+        self.noise_value = 1e-6
         self.hidden_size = 512
 
         self.restore = False
