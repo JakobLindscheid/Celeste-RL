@@ -78,16 +78,24 @@ class PPO(nn.Module):
         
         return advantages
     
-    def update(self, state, actions, reward, next_state, terminated, image, next_image):
-        state = torch.tensor(state, dtype=torch.float).to(self.device)
-        actions = torch.tensor(actions, dtype=torch.float).to(self.device)
-        reward = torch.tensor(reward, dtype=torch.float).to(self.device)
-        next_state = torch.tensor(next_state, dtype=torch.float).to(self.device)
-        terminated = torch.tensor(terminated, dtype=torch.float).to(self.device)
+    def update(self):
+        if self.memory.current_size < self.batch_size:
+            return 0
+
+        if self.memory.index % self.config.frequency_training != 0:
+            return
         
+        obs_arr, new_obs_arr, img_arr, new_img_arr, action_arr, reward_arr, dones_arr = self.memory.sample_data(self.batch_size)
+
+        state = obs_arr
+        actions = action_arr
+        reward = reward_arr
+        next_state = new_obs_arr
+        terminated = dones_arr
+
         if self.use_image:
-            image = torch.tensor(image, dtype=torch.float).to(self.device)
-            next_image = torch.tensor(next_image, dtype=torch.float).to(self.device)
+            image = img_arr
+            next_image = new_img_arr
         else:
             image, next_image = None, None
 
@@ -100,7 +108,7 @@ class PPO(nn.Module):
         
         _, log_probs, _ = self.actor.sample_action(state, image)
         log_probs = torch.tensor(log_probs, dtype=torch.float).to(self.device)
-        old_log_probs = log_probs.detach()
+        old_log_probs = log_probs.clone().detach() 
 
         ratios = torch.exp(log_probs - old_log_probs)
         surr1 = ratios * advantages
@@ -160,17 +168,17 @@ class PPO(nn.Module):
                             # Insert the data in the algorithm memory
                             self.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
 
-                             # Train the algorithm
-                            self.update(state, actions, reward, next_state, terminated, image, next_image)
-
                             # Actualise state
                             state = next_state
                             image = next_image
                             ep_reward.append(reward)
                             iteration += 1
+                        
+                    self.update()
+                    self.memory.reset()
 
                     if ep_reward:
-                        entropy = 0
+                        entropy = 0 #Where do we get entropy?
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
 
