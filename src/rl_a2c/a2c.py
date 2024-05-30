@@ -86,8 +86,8 @@ class A2C():
         entropy = torch.tensor(entropy, dtype=torch.float, requires_grad=True).to(self.device)
 
 
-        actor_loss = -(log_probs * advantage).mean()    
-        #actor_loss = -(log_probs * advantage).mean() - self.entropy_weight * entropy.mean()    
+        #actor_loss = -(log_probs * advantage).mean()    
+        actor_loss = -(log_probs * advantage).mean() - self.entropy_weight * entropy.mean()    
         self.optimizer_actor.zero_grad()
         actor_loss.backward()
         self.optimizer_actor.step()
