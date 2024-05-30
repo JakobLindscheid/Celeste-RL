@@ -1,9 +1,8 @@
-"""Multiple DQN class file
-"""
-
-from rl_ppo.buffer import Buffer
-from rl_ppo.actor_critic import ActorCritic
+from rl_ppo.buffer import ReplayBuffer
+from rl_ppo.networks import ActorNetwork, CriticNetwork
 from rl_ppo.config_ppo import ConfigPPO
+from torchrl.objectives import ClipPPOLoss
+from torchrl.objectives.value import GAE
 
 import torch
 import torch.nn as nn
@@ -12,143 +11,252 @@ import torch.distributions as tdist
 
 from config import Config
 
-
-# Définir le modèle de réseau neuronal (Q-value)
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from torch.distributions import Categorical
 
 class PPO(nn.Module):
-    def __init__(self, config_ppo: ConfigPPO, config_env: Config):
+    def __init__(self, config_ppo, config_env):
         super(PPO, self).__init__()
+        self.config = config_ppo
+        self.config_env = config_env
+        self.size_histo = 0
+        self.action_size = config_env.action_size.shape[0]
+        self.action_size_discrete = config_env.action_size
 
-        self.action_mode = "Continuous"
+        self.gamma = config_ppo.discount_factor
+        self.clip_epsilon = config_ppo.clip_epsilon
+       
+        self.state_size = config_env.base_observation_size
+        if config_env.give_goal_coords:
+            self.state_size += 4
+        if config_env.give_screen_value:
+            self.state_size += 1  
 
-        self.device = config_env.device
+        self.size_image = config_env.size_image if self.config.use_image_train else None
+        self.use_image = config_env.use_image
+        self.batch_size = config_ppo.batch_size
+
+        self.actor = ActorNetwork(self.state_size, self.action_size, self.action_size_discrete, self.size_image, self.size_histo, self.config)
+        self.critic = CriticNetwork(self.state_size, self.action_size, self.size_image, self.size_histo, self.config)
+
+        self.policy_optimizer = optim.Adam(self.actor.parameters(), lr=config_ppo.lr)
+        self.value_optimizer = optim.Adam(self.critic.parameters(), lr=config_ppo.lr)
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
 
-        self.config = config_ppo
+        self.memory = ReplayBuffer(self.config.size_buffer, self.action_size, self.state_size, self.size_image, self.size_histo)
 
-        self.save_file = self.config.file_save + "/network.pt"
-        self.discount_factor = self.config.discount_factor
-        self.standardize = self.config.standardize
-
-        self.coef_entropy = self.config.coef_entropy
-        self.coef_critic = self.config.coef_critic
-
-        self.nb_epochs = self.config.nb_epochs
-
-        self.size_histo = config_env.histo_image
-        self.state_size = config_env.observation_size
-        self.action_size = config_env.action_size.shape[0]
-        self.use_image = config_env.use_image
-        self.image_size = config_env.size_image if self.use_image else None
-
-        self.buffer = Buffer(size=self.config.size_buffer, action_size=self.action_size, state_size=self.state_size, image_size=self.image_size, size_histo=self.size_histo)
-
-        self.clip_value = self.config.clip_value
-
-        self.actor_critic = ActorCritic(self.action_size, self.state_size, self.image_size, self.size_histo, self.device, self.config)
-
-        if self.config.restore:
-            self.load_model()
-
-        self.optimizer = torch.optim.Adam(params=list(self.actor_critic.parameters()).copy(), lr=self.config.lr)
-
-        self.action_raw = None
-        self.log_prob = None
-        self.value = None
-
-
+    def insert_data(self, state, new_state, image, new_image, actions_probs, reward, terminated, truncated):
+        self.memory.insert_data(state, new_state, image, new_image, actions_probs, reward, terminated)
 
     def choose_action(self, state, image):
-
-        # Formate state
-        state = torch.tensor(state, dtype=torch.float, device=self.device)
+        state = torch.tensor(state, dtype=torch.float).to(self.actor.device) 
         if self.use_image:
-            image = torch.tensor(image, dtype=torch.float, device=self.device)
-        mu, var, value = self.actor_critic(state, image)
-        probs = tdist.Normal(mu, var)
-        actions = probs.sample()
-        action = torch.tanh(actions).to(self.device)
+            image = torch.tensor(image, dtype=torch.float).to(self.actor.device)
+        action, log_prob, entropy = self.actor.sample_action(state, image if self.use_image else None)
+        action = torch.tensor(action).to(self.actor.device)
+        log_prob = torch.tensor(log_prob).to(self.actor.device)
+        return action.cpu().detach().numpy(), log_prob.cpu().detach().numpy()
 
-        self.action_raw = actions.cpu().detach().numpy()
-        self.log_prob = probs.log_prob(actions).cpu().detach().numpy()
-        self.value = value.cpu().detach().numpy()
-        return action.cpu().detach().numpy()
+    def compute_advantages(self, rewards, values, next_values, dones, gamma=0.99, gae_lambda=0.95):
+        rewards = rewards.view(-1)
+        values = values.view(-1)
+        next_values = next_values.view(-1)
+        dones = dones.view(-1)
+        
+        advantages = torch.zeros_like(rewards)
+        gae = 0
+        
+        for t in reversed(range(len(rewards))):
+            delta = rewards[t] + gamma * next_values[t] * (1 - dones[t].detach()) - values[t]
+            gae = delta + gamma * gae_lambda * (1 - dones[t]) * gae
+            advantages[t] = gae
+        
+        return advantages
+    
+    def update(self, state, actions, reward, next_state, terminated, image, next_image):
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
+        actions = torch.tensor(actions, dtype=torch.float).to(self.device)
+        reward = torch.tensor(reward, dtype=torch.float).to(self.device)
+        next_state = torch.tensor(next_state, dtype=torch.float).to(self.device)
+        terminated = torch.tensor(terminated, dtype=torch.float).to(self.device)
+        
+        if self.use_image:
+            image = torch.tensor(image, dtype=torch.float).to(self.device)
+            next_image = torch.tensor(next_image, dtype=torch.float).to(self.device)
+        else:
+            image, next_image = None, None
 
-    def insert_data(self, state, new_state, image, new_image, action, reward, terminated, truncated):
-        self.buffer.insert_data(state, image, self.action_raw, self.log_prob, self.value, reward, terminated or truncated)
+        values = self.critic(state, image).squeeze()
+        with torch.no_grad():
+            target_values = reward + (1 - terminated) * self.gamma * self.critic(next_state, next_image).squeeze()
 
-    def train(self):
+        advantages = self.compute_advantages(reward, values, target_values, terminated)
+        returns = (advantages + values).detach()
+        
+        _, log_probs, _ = self.actor.sample_action(state, image)
+        log_probs = torch.tensor(log_probs, dtype=torch.float).to(self.device)
+        old_log_probs = log_probs.detach()
 
-        if not self.buffer.full:
-            return
+        ratios = torch.exp(log_probs - old_log_probs)
+        surr1 = ratios * advantages
+        surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
+        policy_loss = -torch.min(surr1, surr2).mean()
+        self.policy_optimizer.zero_grad()
+        policy_loss.backward(retain_graph=True)
+        self.policy_optimizer.step()
 
-        returns = self.get_expected_returns()
+        value_loss = F.mse_loss(values, returns)
+        self.value_optimizer.zero_grad()
+        value_loss.backward()
+        self.value_optimizer.step()
+       
 
-        old_actions = torch.tensor(self.buffer.actions, device=self.device)
+    def train(self,env,config,metrics):
+        # For every episode
+        for learning_step in range(1, config.nb_learning_step + 1):
 
-        old_action_log_probs = torch.tensor(self.buffer.log_prob, device=self.device)
-        old_advantage = returns - torch.tensor(self.buffer.values, device=self.device)
+            # Reset nb terminated
+            metrics.nb_terminated_train = 0
+            iteration = 1
+            if learning_step > 1 or not config.start_with_test:
+                episode_train = 1
+                while episode_train < config.nb_train_episode + 1:
 
-        for _ in range(self.nb_epochs):
+                    # Reset the environnement
+                    obs, _ = env.reset(test=False)
+                    state = obs["info"]
+                    image = obs["frame"]
+                    while obs["fail"]:
+                        print("failed to sync try respawn")
+                        obs, _ = env.reset(test=False)
+                        state = obs["info"]
+                        image = obs["frame"]
 
-            t_states = torch.tensor(self.buffer.states, requires_grad=True, dtype=torch.float32, device=self.device)
-            if self.use_image:
-                t_images = torch.tensor(self.buffer.images, requires_grad=True, dtype=torch.float32, device=self.device)
-            else:
-                t_images = None
+                    ep_reward = list()
 
-            mu, var, values = self.actor_critic(t_states, t_images)
+                    terminated = False
+                    truncated = False
+                    
+                    # For each step
+                    image_steps = 0
+                    while not terminated and not truncated:
+                        # if image_steps %10==0:
+                        #     screen = env.get_image_game(normalize=False)[0]
+                        #     cv2.imwrite('screen.png', np.rollaxis(screen, 0, 3))
+                        # Get the actions
+                        # print(state[0][:11])
+                        actions, _ = self.choose_action([state], [image])
+                        # Step the environnement
+                        obs, reward, terminated, truncated, _ = env.step(actions)
+                        next_state = obs["info"]
+                        next_image = obs["frame"]
+
+                        if not truncated:
+                            # Insert the data in the algorithm memory
+                            self.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
+
+                             # Train the algorithm
+                            self.update(state, actions, reward, next_state, terminated, image, next_image)
+
+                            # Actualise state
+                            state = next_state
+                            image = next_image
+                            ep_reward.append(reward)
+                            iteration += 1
+
+                    if ep_reward:
+                        entropy = 0
+                        metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
+                        episode_train += 1
 
 
-            distribution = tdist.Normal(mu, var)
-            entropy = distribution.entropy()
-            action_log_probs = distribution.log_prob(old_actions)
+            for episode_test in range(1, config.nb_test_episode + 1):
 
-            ratio = torch.exp(action_log_probs - old_action_log_probs)
+                terminated = False
+                truncated = False
 
-            unclipped_loss = ratio * old_advantage
-            clipped_loss = torch.clip(ratio, 1-self.clip_value, 1+self.clip_value) * old_advantage
+                # Init the episode reward at 0
+                reward_ep = list()
 
-            actor_loss = torch.min(unclipped_loss, clipped_loss)
-            critic_loss = F.mse_loss(values, returns, reduction="none")
+                # Reset the environnement
+                obs, _ = env.reset(test=True)
+                state = obs["info"]
+                image = obs["frame"]
+                while obs["fail"]:
+                    print("failed to sync try respawn")
+                    obs, _ = env.reset(test=True)
+                    state = obs["info"]
+                    image = obs["frame"]
 
-            loss = torch.mean(-actor_loss + self.coef_critic * critic_loss + self.coef_entropy * entropy)
+                # For each step
+                while not terminated and not truncated:
 
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+                    # Get the actions
+                    actions = self.choose_action([state], [image])
 
-        self.buffer.reset()
+                    # Step the environnement
+                    obs, reward, terminated, truncated, _ = env.step(actions.astype(int))
+                    next_state = obs["info"]
+                    next_image = obs["frame"]
+
+                    # Actualise state
+                    state = next_state
+                    image = next_image
+
+                    # Add the reward to the episode reward
+                    reward_ep.append(reward)
+
+                if not truncated:
+                    # Insert the metrics
+                    save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
+
+                    # Print the information about the episode
+                    metrics.print_test_step(learning_step, episode_test)
 
 
+                    if save_video:
+                        print("save")
+                        env.save_video()
 
-    def save_model(self):
-        torch.save(self.actor_critic.state_dict(), self.save_file)
+                    if next_screen and config.max_screen_value_test < 7:
+                        config.max_screen_value_test += 1
+                        config.screen_used.append(config.max_screen_value_test)
 
-    def load_model(self):
-        self.actor_critic.load_state_dict(torch.load(self.save_file))
+                        config.prob_screen_used = np.ones(config.max_screen_value_test+1)
+                        config.prob_screen_used[0] = config.max_screen_value_test
+                        config.prob_screen_used[config.max_screen_value_test] = config.max_screen_value_test+1
+                        config.prob_screen_used = config.prob_screen_used / np.sum(config.prob_screen_used)
+                    episode_test += 1
+                # else:
+                #     episode_test -= 1
 
+            # Save the model (will be True only if new max reward)
+            if save_model:
+                self.save_model()
+            self.save_model(True)
 
-    def get_expected_returns(self):
+            if restore:
+                self.load_model()
 
-        t_rewards = torch.tensor(self.buffer.rewards, device=self.device).flip(0)
-        t_dones = torch.tensor(self.buffer.dones, device=self.device).flip(0)
-        returns = torch.zeros(t_rewards.size(), device=self.device)
+    def save_model(self,recent=False):
+        self.actor_critic.save_model(recent)
+        self.buffer.save_model(recent)
+        if recent:
+            torch.save(self.log_entropy_coef, self.config.file_save_network + "/entropy_recent.pt")
+        else:
+            torch.save(self.log_entropy_coef, self.config.file_save_network + "/entropy.pt")
 
-        # Start from the end of `rewards` and accumulate reward sums
-        # into the `returns` array
-        discounted_sum = 0
-        for index in range(t_rewards.shape[0]):
-            if t_dones[index]:
-                discounted_sum = 0
-            reward = t_rewards[index]
-            discounted_sum = reward + self.discount_factor * discounted_sum
-            returns[index] = discounted_sum
-        returns = returns.flip(0)
+    def load_model(self,recent=False):
+        self.actor_critic.load_model(recent)
+        self.buffer.load_model(recent)
+        if recent:
+            self.log_entropy_coef = torch.load(self.config.file_save_network + "/entropy_recent.pt")
+        else:
+            self.log_entropy_coef = torch.load(self.config.file_save_network + "/entropy.pt")
 
-        if self.standardize:
-            returns = ((returns - torch.mean(returns)) / 
-                    (torch.std(returns) + 10e-7))
-
-        return returns
 

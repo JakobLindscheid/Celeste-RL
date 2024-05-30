@@ -17,11 +17,13 @@ class ppo:
             save_path=self.config_ppo.save_path,
         )
 
-        # load
-        # model = PPO.load(path=r".\logs\rl_model.zip", env=env) 
         
     def train(self,env,config,metrics):
-        self.model = PPO("MultiInputPolicy", env, verbose=1, n_steps=self.config_ppo.n_steps, batch_size=self.config_ppo.batch_size)
+
+        # load
+        self.model = PPO.load(path=r".\src\sb_ppo\logs\rl_model", env=env) 
+
+        #self.model = PPO("MultiInputPolicy", env, verbose=1, n_steps=self.config_ppo.n_steps, batch_size=self.config_ppo.batch_size)
         env_checker.check_env(env)
         # train
         self.model.learn(total_timesteps=self.config_ppo.timesteps, progress_bar=True, callback=self.checkpoint_callback)

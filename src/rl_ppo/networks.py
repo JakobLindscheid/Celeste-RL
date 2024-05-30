@@ -3,13 +3,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
 from torch.distributions import Categorical
-from rl_td3.config_td3 import ConfigTD3
+from rl_ppo.config_ppo import ConfigPPO
 
 import numpy as np
 
 class ActorNetwork(nn.Module):
 
-    def __init__(self, state_size, action_size, action_discrete, size_image, config: ConfigTD3, name="actor"):
+    def __init__(self, state_size, action_size, action_discrete, size_image, histo_size, config: ConfigPPO, name="actor"):
         super(ActorNetwork, self).__init__()
 
         self.save_file =  config.file_save_network + "/" + name + ".pt"
@@ -32,7 +32,6 @@ class ActorNetwork(nn.Module):
                 nn.MaxPool2d(kernel_size=2, stride=2),
                 nn.Flatten()
             )
-             # Divide and minus three times by 2 because maxpooling, multiply by 16 with 16 output filter
             size_output_image = int(32 * np.prod(np.trunc(np.trunc(np.trunc((self.size_image[0:2] - 2)/2-2)/2-2)/2)))
         else:
             size_output_image = 0
@@ -44,12 +43,11 @@ class ActorNetwork(nn.Module):
             nn.ReLU()
         )
 
-        self.mu = nn.Linear(self.hidden_size_2, action_size)
-        self.std = nn.Linear(self.hidden_size_2, action_size)
-
-        self.last = nn.Linear(self.hidden_size_2, action_size)
-
-        self.noise_value = config.noise_value
+        self.horizontal_movement = nn.Linear(self.hidden_size_2, 3)
+        self.vertical_movement = nn.Linear(self.hidden_size_2, 3)
+        self.dash = nn.Linear(self.hidden_size_2, 2)
+        self.jump = nn.Linear(self.hidden_size_2, 3)
+        self.grab = nn.Linear(self.hidden_size_2, 2)
 
         self.optimizer = optim.Adam(self.parameters(), lr=config.lr)
         self.softmax = nn.Softmax(dim=-1)
@@ -59,22 +57,47 @@ class ActorNetwork(nn.Module):
 
     def forward(self, x, image):
         if self.size_image is not None:
-            image = image.transpose(-3, -1).transpose(-1, -2)
+            image = image.transpose(-3,-1).transpose(-2,-1)
+            if image.dim() == 3:
+                image = image.unsqueeze(0)
             x_image = self.base_image(image)
-            x = self.base(torch.cat([x, x_image],dim=1)) if self.use_state else self.base(x_image)
+            if self.use_state:
+                if x.dim() == 1:
+                    x = x.unsqueeze(0)
+                x = torch.cat([x, x_image], dim=1)
+            else:
+                x = x_image
         else:
-            x = self.base(x)
+            if x.dim() == 1:
+                x = x.unsqueeze(0)
 
-        x = torch.tanh(x)
-        mu = self.mu(x)
-        std = torch.clamp(self.std(x), min=1e-6, max=1)
+        x = self.base(x)
 
-        return mu,std
+        horizontal_probs = self.softmax(self.horizontal_movement(x))
+        vertical_probs = self.softmax(self.vertical_movement(x))
+        dash_probs = self.softmax(self.dash(x))
+        jump_probs = self.softmax(self.jump(x))
+        grab_probs = self.softmax(self.grab(x))
 
+        action_probs = (horizontal_probs, vertical_probs, dash_probs, jump_probs, grab_probs)
+        return action_probs
 
-    def sample_normal(self, state, image=None):
-        mu,sigma = self.forward(state, image)
-        return mu,sigma
+    def sample_action(self, state, image=None):
+        action_probs = self.forward(state, image)
+        actions = []
+        log_probs = []
+        entropies = []
+
+        for probs in action_probs:
+            distribution = Categorical(probs)
+            action = distribution.sample()
+            log_prob = distribution.log_prob(action)
+            entropy = distribution.entropy()
+            actions.append(action.item())
+            log_probs.append(log_prob)
+            entropies.append(entropy)
+
+        return actions, log_probs, entropies
 
     def save_model(self,recent=False):
         if recent:
@@ -92,19 +115,17 @@ class ActorNetwork(nn.Module):
 
 class CriticNetwork(nn.Module):
 
-    def __init__(self, state_size, action_size, size_image, config: ConfigTD3, name="critic"):
+    def __init__(self, state_size, action_size, size_image, histo_size, config: ConfigPPO, name="critic"):
         super(CriticNetwork, self).__init__()
 
         self.save_file = config.file_save_network + "/" + name + ".pt"
 
-        self.state_size = state_size
         self.action_size = action_size
         self.size_image = size_image
         self.hidden_size_1 = config.hidden_size
         self.hidden_size_2 = config.hidden_size
-
-
-
+        self.use_state = not config.only_image_actor
+        self.state_size = state_size if self.use_state else 0
 
         if self.size_image is not None:
             self.base_image = nn.Sequential(
@@ -116,13 +137,13 @@ class CriticNetwork(nn.Module):
                 nn.MaxPool2d(kernel_size=2, stride=2),
                 nn.Flatten()
             )
-             # Divide and minus three times by 2 because maxpooling, multiply by 16 with 16 output filter
             size_output_image = int(32 * np.prod(np.trunc(np.trunc(np.trunc((self.size_image[0:2] - 2)/2-2)/2-2)/2)))
+        
         else:
             size_output_image = 0
 
         self.base = nn.Sequential(
-            nn.Linear(size_output_image+state_size+action_size*2, self.hidden_size_1),
+            nn.Linear(size_output_image + self.state_size, self.hidden_size_1),
             nn.ReLU(),
             nn.Linear(self.hidden_size_1, self.hidden_size_2),
             nn.ReLU(),
@@ -134,13 +155,26 @@ class CriticNetwork(nn.Module):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
 
-    def forward(self, state, image, action):
-        if self.size_image is None:
-            return self.base(torch.cat([state, action], dim=1))
+    def forward(self, x, image):
+        if self.size_image is not None:
+            image = image.transpose(-3,-1).transpose(-2,-1)
+            if image.dim() == 3:
+                image = image.unsqueeze(0)
+            x_image = self.base_image(image)
+            if self.use_state:
+                if x.dim() == 1:
+                    x = x.unsqueeze(0)
+                x = torch.cat([x, x_image], dim=1)
+            else:
+                x = x_image
         else:
-            image = image.transpose(-3, -1).transpose(-1, -2)
-            flat_image = self.base_image(image)
-            return self.base(torch.cat([state, flat_image,action], dim=1))
+            if x.dim() == 1:
+                x = x.unsqueeze(0)
+
+        x = self.base(x)
+
+        value = x.squeeze()
+        return value
 
     def save_model(self,recent=False):
         if recent:
