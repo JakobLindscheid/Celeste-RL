@@ -1,6 +1,6 @@
 class ConfigA2C:
     def __init__(self):
-        self.use_image_train = True
+        self.use_image_train = False
         self.only_image_actor = False
         self.discount_factor = 0.99
         self.batch_size = 64
