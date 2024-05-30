@@ -1,6 +1,8 @@
 from rl_ppo.buffer import ReplayBuffer
 from rl_ppo.networks import ActorNetwork, CriticNetwork
 from rl_ppo.config_ppo import ConfigPPO
+from torchrl.objectives import ClipPPOLoss
+from torchrl.objectives.value import GAE
 
 import torch
 import torch.nn as nn
@@ -60,15 +62,20 @@ class PPO(nn.Module):
         log_prob = torch.tensor(log_prob).to(self.actor.device)
         return action.cpu().detach().numpy(), log_prob.cpu().detach().numpy()
 
-    def compute_advantages(rewards, values, next_values, dones, gamma=0.99, gae_lambda=0.95):
+    def compute_advantages(self, rewards, values, next_values, dones, gamma=0.99, gae_lambda=0.95):
+        rewards = rewards.view(-1)
+        values = values.view(-1)
+        next_values = next_values.view(-1)
+        dones = dones.view(-1)
+        
         advantages = torch.zeros_like(rewards)
         gae = 0
-    
+        
         for t in reversed(range(len(rewards))):
-            delta = rewards[t] + gamma * next_values[t] * (1 - dones[t]) - values[t]
+            delta = rewards[t] + gamma * next_values[t] * (1 - dones[t].detach()) - values[t]
             gae = delta + gamma * gae_lambda * (1 - dones[t]) * gae
             advantages[t] = gae
-    
+        
         return advantages
     
     def update(self, state, actions, reward, next_state, terminated, image, next_image):
@@ -88,37 +95,26 @@ class PPO(nn.Module):
         with torch.no_grad():
             target_values = reward + (1 - terminated) * self.gamma * self.critic(next_state, next_image).squeeze()
 
-        #advantages = self.compute_advantages(reward, values, target_values, terminated)
-        advantages = (target_values - values).detach()
-        returns = (torch.FloatTensor(advantages) + values).detach
+        advantages = self.compute_advantages(reward, values, target_values, terminated)
+        returns = (advantages + values).detach()
         
-        for _ in range(10):
-            new_log_probs = []
-            entropies = []
-            for s, a in zip(state, actions):
-                print("state ", s)
-                s = s.unsqueeze(0)
-                print("state ", s)
-                print("actions ", a)
-                _, log_probs, entropy = self.actor.sample_action(s, image)
-                new_log_probs.append(log_probs)
-                entropies.append(entropy)
-            new_log_probs = torch.cat(new_log_probs)
-            entropies = torch.cat(entropies)
-            
-            ratios = torch.exp(new_log_probs - log_probs)
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
-            policy_loss = -torch.min(surr1, surr2).mean() - 0.01 * entropies.mean()
-            value_loss = (returns - values).pow(2).mean()
-            
-            self.policy_optimizer.zero_grad()
-            policy_loss.backward()
-            self.policy_optimizer.step()
-            
-            self.value_optimizer.zero_grad()
-            value_loss.backward()
-            self.value_optimizer.step()
+        _, log_probs, _ = self.actor.sample_action(state, image)
+        log_probs = torch.tensor(log_probs, dtype=torch.float).to(self.device)
+        old_log_probs = log_probs.detach()
+
+        ratios = torch.exp(log_probs - old_log_probs)
+        surr1 = ratios * advantages
+        surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
+        policy_loss = -torch.min(surr1, surr2).mean()
+        self.policy_optimizer.zero_grad()
+        policy_loss.backward(retain_graph=True)
+        self.policy_optimizer.step()
+
+        value_loss = F.mse_loss(values, returns)
+        self.value_optimizer.zero_grad()
+        value_loss.backward()
+        self.value_optimizer.step()
+       
 
     def train(self,env,config,metrics):
         # For every episode
@@ -174,6 +170,7 @@ class PPO(nn.Module):
                             iteration += 1
 
                     if ep_reward:
+                        entropy = 0
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
 
@@ -262,27 +259,4 @@ class PPO(nn.Module):
         else:
             self.log_entropy_coef = torch.load(self.config.file_save_network + "/entropy.pt")
 
-
-    def get_expected_returns(self):
-
-        t_rewards = torch.tensor(self.buffer.rewards, device=self.device).flip(0)
-        t_dones = torch.tensor(self.buffer.dones, device=self.device).flip(0)
-        returns = torch.zeros(t_rewards.size(), device=self.device)
-
-        # Start from the end of `rewards` and accumulate reward sums
-        # into the `returns` array
-        discounted_sum = 0
-        for index in range(t_rewards.shape[0]):
-            if t_dones[index]:
-                discounted_sum = 0
-            reward = t_rewards[index]
-            discounted_sum = reward + self.discount_factor * discounted_sum
-            returns[index] = discounted_sum
-        returns = returns.flip(0)
-
-        if self.standardize:
-            returns = ((returns - torch.mean(returns)) / 
-                    (torch.std(returns) + 10e-7))
-
-        return returns
 
