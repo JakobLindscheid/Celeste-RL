@@ -166,3 +166,5 @@ cython_debug/
 file.tas
 
 *.zip
+
+.idea/
