@@ -161,10 +161,10 @@ cython_debug/
 
 *.pt
 *.png
-
 # 
 file.tas
-
 *.zip
+*.txt
+*.mp4
 
 .idea/

@@ -92,11 +92,13 @@ class ActorNetwork(nn.Module):
             distribution = Categorical(probs)
             action = distribution.sample()
             log_prob = distribution.log_prob(action)
+            log_prob = log_prob.sum()
+            action = action.sum()
             entropy = distribution.entropy()
             actions.append(action.item())
             log_probs.append(log_prob)
             entropies.append(entropy)
-
+    
         return actions, log_probs, entropies
 
     def save_model(self,recent=False):

@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 import torch.optim as optim
-
+from utils.restart_celeste import *
+import time
 class TD3():
 
     def __init__(self, config_td3: ConfigTD3, config_env: Config) -> None:
@@ -80,14 +81,17 @@ class TD3():
             mu = (mu + torch.tensor(np.random.normal(0,self.explore_noise[:5],size=5),dtype=torch.float32).to(self.device))
             sigma = (sigma + torch.tensor(np.random.normal(0,self.explore_noise[5:],size=5),dtype=torch.float32).to(self.device))
 
-        print(mu,sigma)
+        # print(mu,sigma)
         # clamp to make the actions in the correct range
-        mu = torch.clamp(mu, min=torch.tensor(self.action_low[:5]).to(self.device), max=torch.tensor(self.action_high[:5]).to(self.device))
-        sigma = torch.clamp(sigma, min=torch.tensor(self.action_low[5:]).to(self.device), max=torch.tensor(self.action_high[5:]).to(self.device))
-        
+        # mu = torch.clamp(mu, min=torch.tensor(self.action_low[:5]).to(self.device), max=torch.tensor(self.action_high[:5]).to(self.device))
+        # sigma = torch.clamp(sigma, min=torch.tensor(self.action_low[5:]).to(self.device), max=torch.tensor(self.action_high[5:]).to(self.device))
+        sigma = torch.log(1+torch.exp(sigma))
         # sample for mean and sigma
         probabilities = Normal(mu,sigma)
         actions = probabilities.sample()
+        # print("actions",actions)
+        actions = torch.clamp(actions, min=torch.tensor(self.action_low[:5]).to(self.device), max=torch.tensor(self.action_high[:5]).to(self.device))
+
         actions = actions.cpu().detach().numpy().flatten()
 
         # truncate to make them integers
@@ -152,8 +156,8 @@ class TD3():
         noise = torch.empty(10).normal_(0,self.policy_noise)
         noise = noise.clamp(-self.clipped_noise,self.clipped_noise).to(self.device)
 
-        target_mu,target_std = self.target_actor(obs_arr,img_arr)
-        target_actions = (torch.cat([target_mu, target_std],dim=1)+noise).clamp(self.min_action,self.max_action)
+        target_mu,target_std = self.target_actor(new_obs_arr,new_img_arr)
+        target_actions = (torch.cat([target_mu, target_std],dim=1)+noise)#.clamp(self.min_action,self.max_action)
 
         # Compute the target Q value
         with torch.no_grad():
@@ -187,7 +191,27 @@ class TD3():
     
     def train(self,env,config,metrics):
         # For every episode
+        doWrite = True
+        if doWrite:
+            if self.config.restore_networks == False:
+                with open("./src/rl_td3/rewards_train.txt","w") as file:
+                    file.write("start\n")
+                file.close()
+                with open("./src/rl_td3/rewards_test.txt","w") as file:
+                    file.write("start\n")
+                file.close()
+            else:
+                with open("./src/rl_td3/rewards_train.txt","a") as file:
+                    file.write("\nstart\n")
+                file.close()
+                with open("./src/rl_td3/rewards_test.txt","a") as file:
+                    file.write("\nstart\n")
+                file.close()
+        startTime = time.time()
         for learning_step in range(1, config.nb_learning_step + 1):
+            if (time.time() - startTime) > 3600:
+                restart_celeste(env)
+                startTime = time.time()
 
             # Reset nb terminated
             metrics.nb_terminated_train = 0
@@ -218,6 +242,10 @@ class TD3():
                         actions,actions2 = self.choose_action([state], [image])
                         # Step the environnement
                         obs, reward, terminated, truncated, _ = env.step(actions)
+                        if doWrite:
+                            with open("./src/rl_td3/rewards_train.txt","a") as file:
+                                file.write(f"{reward} ")
+                            file.close()
                         next_state = obs["info"]
                         next_image = obs["frame"]
 
@@ -236,13 +264,16 @@ class TD3():
 
                             ep_reward.append(reward)
                             iteration += 1
-
+                    if doWrite:
+                        with open("./src/rl_td3/rewards_train.txt","a") as file:
+                            file.write(f"\n")
+                        file.close()
                     if ep_reward:
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
 
-
-            for episode_test in range(1, config.nb_test_episode + 1):
+            episode_test = 1
+            while episode_test < config.nb_test_episode + 1:
 
                 terminated = False
                 truncated = False
@@ -268,6 +299,10 @@ class TD3():
                     # actions = torch.trunc(actions)
                     # Step the environnement
                     obs, reward, terminated, truncated, _ = env.step(actions)
+                    if doWrite:
+                        with open("./src/rl_td3/rewards_test.txt","a") as file:
+                            file.write(f"{reward} ")
+                        file.close()
                     next_state = obs["info"]
                     next_image = obs["frame"]
 
@@ -278,7 +313,11 @@ class TD3():
                     # Add the reward to the episode reward
                     reward_ep.append(reward)
                 save_model,restore = False,False
-                if not truncated:
+                if doWrite:
+                    with open("./src/rl_td3/rewards_test.txt","a") as file:
+                        file.write(f"\n")
+                    file.close()
+                if not truncated or truncated:
                     # Insert the metrics
                     save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
 

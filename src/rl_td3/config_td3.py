@@ -24,12 +24,12 @@ class ConfigTD3:
         self.size_buffer = 10_000
 
         self.policy_noise = 0.2
-        self.explore_noise = [0.6,0.6,0.2,0.3,0.2,0.2,0.2,0.2,0.2,0.2]
-        self.clipped_noise = 0.5
+        self.explore_noise = [0.6,0.6,0.2,0.3,0.2, 0.2,0.2,0.2,0.2,0.2]
+        self.clipped_noise = 0.4
         
 
         self.init_entropy = 2
-        self.restore_networks = True
+        self.restore_networks = False
         self.file_save_network = "src/rl_td3/network"
         self.file_save_memory = "src/rl_td3/memory"
 

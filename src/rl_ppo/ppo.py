@@ -17,6 +17,8 @@ import torch.optim as optim
 import numpy as np
 from torch.distributions import Categorical
 
+import os
+
 class PPO(nn.Module):
     def __init__(self, config_ppo, config_env):
         super(PPO, self).__init__()
@@ -67,58 +69,57 @@ class PPO(nn.Module):
         values = values.view(-1)
         next_values = next_values.view(-1)
         dones = dones.view(-1)
-        
+
         advantages = torch.zeros_like(rewards)
         gae = 0
         
         for t in reversed(range(len(rewards))):
-            delta = rewards[t] + gamma * next_values[t] * (1 - dones[t].detach()) - values[t]
+            delta = rewards[t] + gamma * next_values[t] * (1 - dones[t]) - values[t]
             gae = delta + gamma * gae_lambda * (1 - dones[t]) * gae
             advantages[t] = gae
         
         return advantages
     
-    def update(self):
-        if self.memory.current_size < self.batch_size:
-            return 0
+    def update(self, state, actions, reward, next_state, terminated, image, next_image):
+        #if self.memory.current_size < self.batch_size:
+        #    return
 
-        if self.memory.index % self.config.frequency_training != 0:
-            return
+        #if self.memory.index % self.config.frequency_training != 0:
+        #    return
         
-        obs_arr, new_obs_arr, img_arr, new_img_arr, action_arr, reward_arr, dones_arr = self.memory.sample_data(self.batch_size)
+        #state, next_state, image, next_image, actions, reward, terminated = self.memory.sample_data(self.batch_size)
 
-        state = obs_arr
-        actions = action_arr
-        reward = reward_arr
-        next_state = new_obs_arr
-        terminated = dones_arr
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
+        actions = torch.tensor(actions, dtype=torch.float).to(self.device)
+        reward = torch.tensor(reward, dtype=torch.float).to(self.device)
+        next_state = torch.tensor(next_state, dtype=torch.float).to(self.device)
+        terminated = torch.tensor(terminated, dtype=torch.float).to(self.device)
 
         if self.use_image:
-            image = img_arr
-            next_image = new_img_arr
+            image = torch.tensor(image, dtype=torch.float).to(self.device)
+            next_image = torch.tensor(next_image, dtype=torch.float).to(self.device)
         else:
             image, next_image = None, None
 
         values = self.critic(state, image).squeeze()
-        with torch.no_grad():
-            target_values = reward + (1 - terminated) * self.gamma * self.critic(next_state, next_image).squeeze()
+        target_values = self.critic(next_state, next_image).squeeze()
+
+        values = values.view(-1)
+        target_values = target_values.view(-1)
 
         advantages = self.compute_advantages(reward, values, target_values, terminated)
-        returns = (advantages + values).detach()
+        returns = (values + advantages).detach()
         
-        _, log_probs, _ = self.actor.sample_action(state, image)
-        log_probs = torch.tensor(log_probs, dtype=torch.float).to(self.device)
-        old_log_probs = log_probs.clone().detach() 
+        _, log_probs, entropy = self.actor.sample_action(state, image)
+        log_probs = torch.tensor(log_probs, dtype=torch.float, requires_grad=True).to(self.device)
+        entropy = torch.tensor(entropy, dtype=torch.float, requires_grad=True).to(self.device)
 
-        ratios = torch.exp(log_probs - old_log_probs)
-        surr1 = ratios * advantages
-        surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
-        policy_loss = -torch.min(surr1, surr2).mean()
+        policy_loss = -(log_probs * advantages).mean() - self.entropy_weight * entropy.mean() 
         self.policy_optimizer.zero_grad()
         policy_loss.backward(retain_graph=True)
         self.policy_optimizer.step()
 
-        value_loss = F.mse_loss(values, returns)
+        value_loss = F.mse_loss(values, returns).mean()
         self.value_optimizer.zero_grad()
         value_loss.backward()
         self.value_optimizer.step()
@@ -134,7 +135,6 @@ class PPO(nn.Module):
             if learning_step > 1 or not config.start_with_test:
                 episode_train = 1
                 while episode_train < config.nb_train_episode + 1:
-
                     # Reset the environnement
                     obs, _ = env.reset(test=False)
                     state = obs["info"]
@@ -166,19 +166,19 @@ class PPO(nn.Module):
 
                         if not truncated:
                             # Insert the data in the algorithm memory
-                            self.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
+                            #self.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
 
                             # Actualise state
                             state = next_state
                             image = next_image
                             ep_reward.append(reward)
                             iteration += 1
-                        
-                    self.update()
+              
+                    self.update(state, actions, reward, next_state, terminated, image, next_image)
                     self.memory.reset()
 
                     if ep_reward:
-                        entropy = 0 #Where do we get entropy?
+                        entropy = 0
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
 
@@ -205,7 +205,7 @@ class PPO(nn.Module):
                 while not terminated and not truncated:
 
                     # Get the actions
-                    actions = self.choose_action([state], [image])
+                    actions, _ = self.choose_action([state], [image])
 
                     # Step the environnement
                     obs, reward, terminated, truncated, _ = env.step(actions.astype(int))
@@ -244,27 +244,21 @@ class PPO(nn.Module):
                 #     episode_test -= 1
 
             # Save the model (will be True only if new max reward)
-            if save_model:
+            if config.save_model:
                 self.save_model()
             self.save_model(True)
 
-            if restore:
+            if config.restore:
                 self.load_model()
 
     def save_model(self,recent=False):
-        self.actor_critic.save_model(recent)
-        self.buffer.save_model(recent)
-        if recent:
-            torch.save(self.log_entropy_coef, self.config.file_save_network + "/entropy_recent.pt")
-        else:
-            torch.save(self.log_entropy_coef, self.config.file_save_network + "/entropy.pt")
-
+        save_dir = os.path.dirname(self.config.file_save_network)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        self.actor.save_model(recent)
+        self.critic.save_model(recent)
+  
     def load_model(self,recent=False):
-        self.actor_critic.load_model(recent)
-        self.buffer.load_model(recent)
-        if recent:
-            self.log_entropy_coef = torch.load(self.config.file_save_network + "/entropy_recent.pt")
-        else:
-            self.log_entropy_coef = torch.load(self.config.file_save_network + "/entropy.pt")
-
+        self.actor.load_model(recent)
+        self.critic.load_model(recent)
 
