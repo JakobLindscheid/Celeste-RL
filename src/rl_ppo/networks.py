@@ -62,21 +62,16 @@ class ActorNetwork(nn.Module):
                 image = image.unsqueeze(0)
             x_image = self.base_image(image)
             if self.use_state:
-                print(f"x shape before concat: {x.shape}")
-                print(f"x_image shape before concat: {x_image.shape}")
                 if x.dim() == 1:
                     x = x.unsqueeze(0)
                 x = torch.cat([x, x_image], dim=1)
-                print(f"x shape after concat: {x.shape}")
             else:
                 x = x_image
         else:
             if x.dim() == 1:
                 x = x.unsqueeze(0)
 
-        print(f"x shape before base: {x.shape}")
         x = self.base(x)
-        print(f"x shape after base: {x.shape}")
 
         horizontal_probs = self.softmax(self.horizontal_movement(x))
         vertical_probs = self.softmax(self.vertical_movement(x))
@@ -97,11 +92,13 @@ class ActorNetwork(nn.Module):
             distribution = Categorical(probs)
             action = distribution.sample()
             log_prob = distribution.log_prob(action)
+            log_prob = log_prob.sum()
+            action = action.sum()
             entropy = distribution.entropy()
             actions.append(action.item())
             log_probs.append(log_prob)
             entropies.append(entropy)
-
+    
         return actions, log_probs, entropies
 
     def save_model(self,recent=False):

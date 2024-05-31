@@ -60,7 +60,7 @@ class ReplayBuffer:
         self.rewards = torch.zeros((self.size, 1), device=self.device)
         self.terminated = torch.zeros((self.size, 1), dtype=torch.bool, device=self.device)
         if self.image_size is not None:
-            self.images = torch.zeros((self.size+1, (self.size_histo+1)*self.image_size[0], self.image_size[1], self.image_size[2]), device=self.image_device)
+            self.images = torch.zeros((self.size+1, (self.size_histo+1)*self.image_size[0], self.image_size[1], self.image_size[2]), device=self.image_device, dtype=torch.float16)
 
     def save(self):
         if not os.path.isdir(self.file_save):    

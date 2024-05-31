@@ -1,18 +1,17 @@
 """Main program file
 """
 
+import argparse
+
 import absl.logging
 import torch
-import numpy as np
 
 from celeste_env import CelesteEnv
 from config import Config
-import cv2
-
-import argparse
 from utils.metrics import Metrics
 
 absl.logging.set_verbosity(absl.logging.ERROR)
+
 
 def main(algName):
     """Main program
@@ -27,15 +26,14 @@ def main(algName):
     elif algName == "dqn":
         import rl_dqn as lib
     elif algName == "Astar":
-        # import astar as lib
-        pass
+        import a_star as lib
     elif algName == "A2C":
         import rl_a2c as lib
 
     if torch.cuda.is_available():
         torch.cuda.set_per_process_memory_fraction(0.97)
         torch.cuda.empty_cache()
-        
+
     # Create the instance of the general configuration and algorithm configuration
     config = Config()
     config_algo = lib.ConfigAlgo()
@@ -49,10 +47,7 @@ def main(algName):
     # Create the metrics instance
     metrics = Metrics(config)
 
-    algo.train(env,config,metrics)
-
-
-
+    algo.train(env, config, metrics)
 
 
 if __name__ == "__main__":

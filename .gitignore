@@ -166,3 +166,5 @@ file.tas
 *.zip
 *.txt
 *.mp4
+
+.idea/

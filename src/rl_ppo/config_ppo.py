@@ -9,13 +9,12 @@ class ConfigPPO:
 
         self.discount_factor = 0.99
         self.tau = 0.005
-        self.batch_size = 256
+        self.batch_size = 64
         self.epoch = 1
         self.frequency_training = 1
         self.clip_epsilon = 1e-5
 
         self.lr = 3e-4
-        self.hidden_size = 1024
         self.size_buffer = 10_000
 
         self.init_entropy = 2
@@ -26,6 +25,7 @@ class ConfigPPO:
         self.noise_value = 1e-6
         self.hidden_size = 512
 
+        self.save_model = True
         self.restore = False
         self.file_save = "src/rl_ppo/network"
 
