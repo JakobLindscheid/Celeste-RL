@@ -5,43 +5,13 @@ import torch.nn as nn
 
 from rl_dqn.config_dqn import ConfigDQN
 
-
-class Value(nn.Module):
-    def __init__(self, inputs, action_shape) -> None:
-        super(Value, self).__init__()
-
-        self.outputs = []
-
-        self.action_size = len(action_shape)
-
-        for size in action_shape:
-            self.outputs.append(nn.Linear(inputs, size))
-
-    def forward(self, x):
-        out = []
-        for index in range(self.action_size):
-            out.append(self.outputs[index](x))
-
-        return out
-
-class Print(nn.Module):
-    def __init__(self) -> None:
-        super(Print, self).__init__()
-
-
-    def forward(self, x):
-        print(x.size())
-        return x
-
 class DQNet(nn.Module):
-    def __init__(self, inputs, action_shape, size_image, config: ConfigDQN, use_image=True) -> None:
+    def __init__(self, inputs, action_size, size_image, config: ConfigDQN, use_image=True) -> None:
         super(DQNet, self).__init__()
 
         self.use_image = use_image
 
         self.save_file = config.file_save + '/' + 'dqn.pt'
-
-        self.action_size = action_shape.shape[0]
 
         self.hiddens = config.hidden_layers
 
@@ -67,7 +37,7 @@ class DQNet(nn.Module):
             nn.ReLU(),
             nn.Linear(self.hiddens, self.hiddens),
             nn.ReLU(),
-            Value(self.hiddens, action_shape)
+            nn.Linear(self.hiddens, action_size)
         )
 
     def forward(self, x, image: torch.Tensor):

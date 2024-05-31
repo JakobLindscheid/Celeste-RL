@@ -7,20 +7,11 @@ class ConfigDQN:
 
     def __init__(self) -> None:
 
-        # Episode to start learning
-        self.start_learning = 0
-
-        # Learn each *this value* of episodes
-        self.nb_episode_learn = 1
-
         # Copy the targer network each *this value* of episodes
-        self.nb_episode_copy_target = 10
+        self.nb_episode_copy_target = 2
 
         # Batch size when training
-        self.batch_size = 16
-
-        # Batch size of the fitting method
-        self.mini_batch_size = 128
+        self.batch_size = 128
 
         # Capacity of the memory
         self.size_buffer = 10_000
@@ -29,10 +20,10 @@ class ConfigDQN:
         self.restore_networks = False
 
         # Gamma value
-        self.discount_factor = 0.95
+        self.discount_factor = 0.98
 
         # Hidden layers
-        self.hidden_layers = 128
+        self.hidden_layers = 512
 
         # Epsilon configuration
         self.init_epsilon = 0.6
@@ -40,9 +31,6 @@ class ConfigDQN:
         self.min_epsilon = 0.1
 
         # Learning rate configuration
-        self.init_lr = 0.005
-        self.nb_episode_lr_decay = 3000
-        self.lr_decay = 0.5
-        self.min_lr = 0.001
+        self.init_lr = 3e-4
 
         self.file_save = "src/rl_dqn/network"
