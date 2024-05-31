@@ -97,7 +97,7 @@ class DQN():
     def get_all_actions(self):
         return list(self.f(self.action_shape.tolist()))
 
-    def choose_action(self, state, image):
+    def choose_action(self, state, image, test=False):
         """Choose the different actions to take
 
         Args:
@@ -120,7 +120,12 @@ class DQN():
         with torch.no_grad():
             list_action_tensor = self.q_network(state, image)
 
-        if r.random() < max(self.epsilon, self.config.min_epsilon):
+        epsilon = max(self.epsilon, self.config.min_epsilon)
+
+        if test:
+            epsilon = self.config.min_epsilon
+
+        if r.random() < epsilon:
             # Get random action probability
             index = np.random.randint(0,self.all_actions_size)
         else:
@@ -192,6 +197,70 @@ class DQN():
         # Decay epsilon
         self.epsilon_decay()
 
+    def test(self, env, config, metrics, learning_step):
+        if config.start_with_test:
+            config.start_with_test = False
+
+        episode_test = 1
+        while episode_test < config.nb_test_episode + 1:
+
+            terminated = False
+            truncated = False
+
+            # Init the episode reward at 0
+            reward_ep = list()
+
+            # Reset the environnement
+            obs, _ = env.reset(test=True)
+            state = obs["info"]
+            image = obs["frame"]
+            while obs["fail"]:
+                print("failed to sync try respawn")
+                obs, _ = env.reset(test=True)
+                state = obs["info"]
+                image = obs["frame"]
+
+            # For each step
+            while not terminated and not truncated:
+
+                # Get the actions
+                actions = self.choose_action(state, image, test=True)
+
+                # Step the environnement
+                obs, reward, terminated, truncated, _ = env.step(actions)
+                next_state = obs["info"]
+                next_image = obs["frame"]
+
+                # Actualise state
+                state = next_state
+                image = next_image
+
+                # Add the reward to the episode reward
+                reward_ep.append(reward)
+
+            if not truncated:
+                # Insert the metrics
+                save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
+
+                # Print the information about the episode
+                metrics.print_test_step(learning_step, episode_test)
+
+                if save_video:
+                    print("save")
+                    env.save_video()
+
+                if next_screen and config.max_screen_value_test < 7:
+                    config.max_screen_value_test += 1
+                    config.screen_used.append(config.max_screen_value_test)
+
+                    config.prob_screen_used = np.ones(config.max_screen_value_test+1)
+                    config.prob_screen_used[0] = config.max_screen_value_test
+                    config.prob_screen_used[config.max_screen_value_test] = config.max_screen_value_test+1
+                    config.prob_screen_used = config.prob_screen_used / np.sum(config.prob_screen_used)
+                episode_test += 1
+
+        self.save_model()
+
     def train(self,env,config,metrics):
         learning_step = 1
         # For every episode
@@ -220,7 +289,6 @@ class DQN():
                     truncated = False
 
                     # For each step
-                    image_steps = 0
                     while not terminated and not truncated:
 
                         actions = self.choose_action(state, image)
@@ -232,7 +300,6 @@ class DQN():
                         if not truncated:
                             # Insert the data in the algorithm memory
                             self.insert_data(state, next_state, image, next_image, actions, reward, terminated, truncated)
-
 
                             # Actualise state
                             state = next_state
@@ -248,72 +315,7 @@ class DQN():
                         episode_train += 1
                         learning_step += 1
 
-            if config.start_with_test:
-                config.start_with_test = False
-
-            episode_test = 1
-            while episode_test < config.nb_test_episode + 1:
-
-                terminated = False
-                truncated = False
-
-                # Init the episode reward at 0
-                reward_ep = list()
-
-                # Reset the environnement
-                obs, _ = env.reset(test=True)
-                state = obs["info"]
-                image = obs["frame"]
-                while obs["fail"]:
-                    print("failed to sync try respawn")
-                    obs, _ = env.reset(test=True)
-                    state = obs["info"]
-                    image = obs["frame"]
-
-                # For each step
-                while not terminated and not truncated:
-
-                    # Get the actions
-                    actions = self.choose_action(state, image)
-
-                    # Step the environnement
-                    obs, reward, terminated, truncated, _ = env.step(actions)
-                    next_state = obs["info"]
-                    next_image = obs["frame"]
-
-                    # Actualise state
-                    state = next_state
-                    image = next_image
-
-                    # Add the reward to the episode reward
-                    reward_ep.append(reward)
-
-                if not truncated:
-                    # Insert the metrics
-                    save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
-
-                    # Print the information about the episode
-                    metrics.print_test_step(learning_step, episode_test)
-
-
-                    if save_video:
-                        print("save")
-                        env.save_video()
-
-                    if next_screen and config.max_screen_value_test < 7:
-                        config.max_screen_value_test += 1
-                        config.screen_used.append(config.max_screen_value_test)
-
-                        config.prob_screen_used = np.ones(config.max_screen_value_test+1)
-                        config.prob_screen_used[0] = config.max_screen_value_test
-                        config.prob_screen_used[config.max_screen_value_test] = config.max_screen_value_test+1
-                        config.prob_screen_used = config.prob_screen_used / np.sum(config.prob_screen_used)
-                    episode_test += 1
-
-            self.save_model()
-
-            if restore:
-                self.load_model()
+            self.test(env, config, metrics, learning_step)
 
             restart_celeste(env)
 
