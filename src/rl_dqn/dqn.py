@@ -313,11 +313,11 @@ class DQN():
                     if ep_reward:
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
-                        learning_step += 1
 
             self.test(env, config, metrics, learning_step)
 
             restart_celeste(env)
+            learning_step += 1
 
     def copy_target_network(self):
         """Set the weight on the target network based on the current q network
