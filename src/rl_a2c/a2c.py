@@ -6,14 +6,15 @@ import os
 from rl_a2c.networks import A2CActorNetwork, A2CCriticNetwork
 from rl_a2c.config_a2c import ConfigA2C
 from config import Config
-
+from utils.restart_celeste import *
+import time
 class A2C():
 
     def __init__(self, config_a2c: ConfigA2C, config_env: Config) -> None:
         self.config = config_a2c
         self.config_env = config_env
         self.size_histo = 0
-        self.entropy_weight = 0.01
+        self.entropy_weight = 0.1
         self.action_size = config_env.action_size.shape[0]
         self.action_size_discrete = config_env.action_size
         self.state_size = config_env.base_observation_size
@@ -47,14 +48,11 @@ class A2C():
             image = torch.tensor(image, dtype=torch.float).to(self.actor.device)
     
         action, log_prob, entropy = self.actor.sample_action(state, image if self.use_image else None)
-        action = torch.tensor(action).to(self.actor.device)
-        log_prob = torch.tensor(log_prob).to(self.actor.device)
-        #print("action",action)
-        #print("log",log_prob)
-        return action.cpu().detach().numpy(), log_prob.cpu().detach().numpy()
+
+        return action, log_prob
     
     
-    def calculate_loss(self, state, action, reward, next_state, done, image=None, next_image=None):
+    def calculate_loss(self, state, action, reward, next_state, done, log_p,entropy,image=None, next_image=None):
         state = torch.tensor(state, dtype=torch.float).to(self.device)
         action = torch.tensor(action, dtype=torch.float).to(self.device)
         reward = torch.tensor(reward, dtype=torch.float).to(self.device)
@@ -81,13 +79,15 @@ class A2C():
         self.optimizer_critic.step()
 
         # Sample actions to get log probabilities
-        _, log_probs, entropy = self.actor.sample_action(state, image)
-        log_probs = torch.tensor(log_probs, dtype=torch.float, requires_grad=True).to(self.device)
-        entropy = torch.tensor(entropy, dtype=torch.float, requires_grad=True).to(self.device)
-
+        # _, log_probs, entropy = self.actor.sample_action(state, image)
+        # log_probs = torch.tensor(log_probs, dtype=torch.float).to(self.device)
+        # entropy = torch.tensor(entropy, dtype=torch.float).to(self.device)
+        # print(log_probs)
 
         #actor_loss = -(log_probs * advantage).mean()    
-        actor_loss = -(log_probs * advantage).mean() - self.entropy_weight * entropy.mean()    
+        actor_loss = 0
+        for action_i in range(5):
+            actor_loss += -(log_p[action_i] * advantage)/5  + self.entropy_weight * entropy[action_i]/5
         self.optimizer_actor.zero_grad()
         actor_loss.backward()
         self.optimizer_actor.step()
@@ -96,9 +96,30 @@ class A2C():
 
     
     def train(self, env, config, metrics):
+        # For every episode
+        doWrite = True
+        if doWrite:
+            if self.config.restore_networks == False:
+                with open("./src/rl_a2c/rewards_train.txt","w") as file:
+                    file.write("start\n")
+                file.close()
+                with open("./src/rl_a2c/rewards_test.txt","w") as file:
+                    file.write("start\n")
+                file.close()
+            else:
+                with open("./src/rl_a2c/rewards_train.txt","a") as file:
+                    file.write("\nstart\n")
+                file.close()
+                with open("./src/rl_a2c/rewards_test.txt","a") as file:
+                    file.write("\nstart\n")
+                file.close()
+        startTime = time.time()
+
         for learning_step in range(1, config.nb_learning_step + 1):
             metrics.nb_terminated_train = 0
-
+            if (time.time() - startTime) > 1800:
+                restart_celeste(env)
+                startTime = time.time()
             if learning_step > 1 or not config.start_with_test:
                 episode_train = 1
                 while episode_train < config.nb_train_episode + 1:
@@ -116,19 +137,31 @@ class A2C():
                     truncated = False
 
                     while not terminated and not truncated:
-                        action, _ = self.choose_action(state, image)
+                        state = torch.tensor(state, dtype=torch.float).to(self.device)                      
+                        if self.use_image:
+                            image = torch.tensor(image, dtype=torch.float).to(self.device)
+                        else:
+                            image = None
+                        action, log_p, entropy = self.actor.sample_action(state, image)
                         obs, reward, terminated, truncated, _ = env.step(action)
+                        if doWrite:
+                            with open("./src/rl_a2c/rewards_train.txt","a") as file:
+                                file.write(f"{reward} ")
+                            file.close()
                         next_state = obs["info"]
                         next_image = obs["frame"]
 
                         if not truncated:
                 
-                            actor_loss, critic_loss, entropy = self.calculate_loss(state, action, reward, next_state, terminated, image, next_image)
+                            actor_loss, critic_loss, entropy = self.calculate_loss(state, action, reward, next_state, terminated, log_p, entropy, image, next_image)
 
                             state = next_state
                             image = next_image
                             ep_reward.append(reward)
-
+                    if doWrite:
+                        with open("./src/rl_a2c/rewards_train.txt","a") as file:
+                            file.write(f"\n")
+                        file.close()
                     if ep_reward:
                         metrics.print_train_step(learning_step, episode_train, ep_reward, entropy)
                         episode_train += 1
@@ -151,6 +184,11 @@ class A2C():
                 while not terminated and not truncated:
                     action, _ = self.choose_action(state, image)
                     obs, reward, terminated, truncated, _ = env.step(action)
+                    if doWrite:
+                        with open("./src/rl_a2c/rewards_test.txt","a") as file:
+                            file.write(f"{reward} ")
+                        file.close()
+
                     next_state = obs["info"]
                     next_image = obs["frame"]
 
@@ -158,7 +196,11 @@ class A2C():
                     image = next_image
                     reward_ep.append(reward)
 
-                if not truncated:
+                if doWrite:
+                    with open("./src/rl_a2c/rewards_test.txt","a") as file:
+                        file.write(f"\n")
+                    file.close()
+                if not truncated or truncated:
                     save_model, save_video, restore, next_screen = metrics.insert_metrics(learning_step, reward_ep, episode_test, env.max_steps, env.game_step)
                     metrics.print_test_step(learning_step, episode_test)
 

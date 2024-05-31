@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 from rl_a2c.config_a2c import ConfigA2C
 import numpy as np
-
+import random
 class A2CActorNetwork(nn.Module):
 
     def __init__(self, state_size, action_size, action_discrete, size_image, config: ConfigA2C, name="actor"):
@@ -113,15 +113,21 @@ class A2CActorNetwork(nn.Module):
         log_probs = []
         entropies = []
 
-        for probs in action_probs:
-            distribution = Categorical(probs)
-            action = distribution.sample()
-            log_prob = distribution.log_prob(action)
-            entropy = distribution.entropy()
-            actions.append(action.item())
+        N = [3,3,2,3,2]
+        for i,probs in enumerate(action_probs):
+            # distribution = Categorical(probs)
+            # action = distribution.sample()
+            # log_prob = distribution.log_prob(action)
+            # entropy = distribution.entropy()
+
+            action = random.choices(range(N[i]), probs[0])[0]
+            log_prob = torch.log(probs[0][action])
+            entropy = torch.sum(probs[0]*torch.log(probs[0]))
+            # actions.append(action.item())
+            actions.append(action)
             log_probs.append(log_prob)
             entropies.append(entropy)
-
+        
         return actions, log_probs, entropies
 
     def save_model(self, recent=False):
