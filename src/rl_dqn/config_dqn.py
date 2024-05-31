@@ -8,7 +8,7 @@ class ConfigDQN:
     def __init__(self) -> None:
 
         # Copy the targer network each *this value* of episodes
-        self.nb_episode_copy_target = 2
+        self.nb_episode_copy_target = 200
 
         # Batch size when training
         self.batch_size = 128
