@@ -4,6 +4,7 @@ import signal
 from celeste_env import CelesteEnv
 
 from itertools import count
+from ahk import AHK
 
 
 def find_path(name: str) -> str:
@@ -32,6 +33,25 @@ def restart_celeste(env: CelesteEnv):
         except:
             if i >= timeout:
                 raise
+
+    # resize window
+    ahk = AHK()
+
+    win = ahk.win_get(title='ahk_exe Celeste.exe')
+
+    if win:
+        win.activate()
+        win.to_top()
+
+        try: # this will fail when run a second time
+            win.set_style("-0xC40000")
+        except:
+            pass
+
+        win.move(x=env.config.region[0], y=env.config.region[1], width=env.config.region[2], height=env.config.region[3])
+        win.redraw()
+    else:
+        raise Exception("Celeste window not found")
 
 
 
